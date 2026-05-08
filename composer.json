@@ -1,5 +1,35 @@
 {
+    "name": "guilherme1985/qr-track",
+    "description": "Arkham Files — QR Code generator and tracker. Substantial rewrite/evolution of tuxxin/qr-track.",
+    "type": "project",
+    "license": "GPL-3.0-or-later",
+    "keywords": ["qr-code", "qr-tracker", "self-hosted", "arkham-files"],
     "require": {
-        "chillerlan/php-qrcode": "^5.0"
+        "php": "^8.3",
+        "ext-pdo": "*",
+        "ext-pdo_sqlite": "*",
+        "ext-gd": "*",
+        "ext-mbstring": "*",
+        "ext-json": "*",
+        "endroid/qr-code": "^5.0",
+        "pragmarx/google2fa": "^8.0",
+        "bacon/bacon-qr-code": "^3.0",
+        "erusev/parsedown": "^1.7",
+        "erusev/parsedown-extra": "^0.8",
+        "bramus/router": "^1.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "ArkhamFiles\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "platform-check": false
+    },
+    "scripts": {
+        "migrate": "php bin/migrate.php",
+        "serve": "php -S 127.0.0.1:8080 -t public"
     }
 }

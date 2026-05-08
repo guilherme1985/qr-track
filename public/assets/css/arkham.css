@@ -1,0 +1,178 @@
+/* =====================================================================
+   ARKHAM FILES · Design tokens e estilos base
+   Paleta: verde-fósforo + ouro envelhecido sobre preto profundo
+   ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    /* Cores */
+    --af-bg:           #0F0E13;
+    --af-bg-2:         #16171B;
+    --af-bg-3:         #0D0C11;
+    --af-border:       #2A2B30;
+    --af-border-soft:  #3A3B40;
+    --af-text:         #E8DDC9;
+    --af-text-soft:    #B8B0A0;
+    --af-text-mute:    #7A7B82;
+    --af-phosphor:     #7DDB4F;     /* verde-fósforo: estados ativos / brand */
+    --af-gold:         #A88B4C;     /* ouro envelhecido: ornamentos / atenção */
+    --af-blood:        #5C1A1B;     /* bordô: erros / arquivado */
+    --af-blood-bright: #A32D2D;     /* alerta vivo */
+
+    /* Tipografia */
+    --af-font-display:  'Cinzel', Georgia, serif;
+    --af-font-editorial:'Cormorant Garamond', Georgia, serif;
+    --af-font-mono:     'JetBrains Mono', 'Courier New', monospace;
+
+    /* Espaçamento / radius */
+    --af-radius:    0;       /* tema documental — quinas vivas */
+    --af-radius-sm: 2px;
+
+    /* Sombras */
+    --af-shadow-soft: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* ---------- Reset mínimo --------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+    background: var(--af-bg);
+    color: var(--af-text);
+    font-family: var(--af-font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+}
+
+a { color: var(--af-phosphor); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+hr {
+    border: 0;
+    border-top: 0.5px solid var(--af-border);
+    margin: 24px 0;
+}
+
+/* ---------- Utilitários ---------------------------------------------- */
+.af-display    { font-family: var(--af-font-display); letter-spacing: 4px; }
+.af-editorial  { font-family: var(--af-font-editorial); }
+.af-mono       { font-family: var(--af-font-mono); }
+
+.af-phosphor   { color: var(--af-phosphor); }
+.af-gold       { color: var(--af-gold); }
+.af-blood      { color: var(--af-blood-bright); }
+.af-soft       { color: var(--af-text-soft); }
+.af-mute       { color: var(--af-text-mute); }
+
+.af-track-2    { letter-spacing: 2px; }
+.af-track-3    { letter-spacing: 3px; }
+.af-track-4    { letter-spacing: 4px; }
+.af-track-5    { letter-spacing: 5px; }
+
+/* Divisor ornamental "◆ ━━━━━ ◆" */
+.af-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: var(--af-gold);
+    margin: 24px 0;
+}
+.af-divider::before,
+.af-divider::after {
+    content: "";
+    flex: 1;
+    border-top: 0.5px solid var(--af-gold);
+    opacity: 0.5;
+    max-width: 120px;
+}
+
+/* ---------- Botões --------------------------------------------------- */
+.af-btn {
+    background: transparent;
+    color: var(--af-phosphor);
+    border: 1px solid var(--af-phosphor);
+    font-family: var(--af-font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 5px;
+    padding: 14px 28px;
+    cursor: pointer;
+    border-radius: var(--af-radius);
+    transition: background 0.15s ease, color 0.15s ease;
+    text-transform: uppercase;
+}
+.af-btn:hover {
+    background: var(--af-phosphor);
+    color: var(--af-bg);
+    text-decoration: none;
+}
+.af-btn--primary {
+    background: var(--af-phosphor);
+    color: var(--af-bg);
+}
+.af-btn--primary:hover {
+    background: transparent;
+    color: var(--af-phosphor);
+}
+.af-btn--ghost {
+    color: var(--af-text-soft);
+    border-color: var(--af-border-soft);
+}
+.af-btn--ghost:hover {
+    background: var(--af-bg-2);
+    color: var(--af-text);
+}
+
+/* ---------- Form controls ------------------------------------------- */
+.af-input,
+.af-select,
+.af-textarea {
+    width: 100%;
+    background: var(--af-bg-2);
+    border: 0.5px solid var(--af-border-soft);
+    color: var(--af-text);
+    font-family: var(--af-font-mono);
+    font-size: 13px;
+    padding: 11px 13px;
+    letter-spacing: 1.5px;
+    border-radius: var(--af-radius);
+    box-sizing: border-box;
+    outline: none;
+}
+.af-input:focus,
+.af-select:focus,
+.af-textarea:focus {
+    border-color: var(--af-phosphor);
+}
+.af-label {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--af-text-soft);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+/* ---------- Container / layout -------------------------------------- */
+.af-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+.af-container--narrow {
+    max-width: 480px;
+}
+
+/* ---------- Acessibilidade ------------------------------------------- */
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+}

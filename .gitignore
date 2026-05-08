@@ -1,0 +1,27 @@
+# Dependencies
+/vendor/
+
+# Application data (never commit user data)
+/data/
+/uploads/
+/storage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Composer
+composer.phar
