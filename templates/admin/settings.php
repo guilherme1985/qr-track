@@ -6,7 +6,7 @@
 
 $categoryTree   = [];
 $activeCategory = '';
-$userInitials   = 'CR';
+// $currentUser vem do middleware/index.php.
 
 ob_start();
 ?>

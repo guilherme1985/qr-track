@@ -8,10 +8,12 @@ namespace ArkhamFiles;
  *
  * Responsibilities:
  *   - Composer autoload
+ *   - Helpers globais (e(), t(), icon())
  *   - .env loading
- *   - Timezone, error reporting, session config
+ *   - Timezone, error reporting
  *   - Storage paths (creates directories on first run)
  *   - I18n preload
+ *   - Session save_path setup (cookie config delegada pra Auth\Session)
  */
 final class Bootstrap
 {
@@ -62,14 +64,12 @@ final class Bootstrap
         self::ensureDir(Config::get('UPLOAD_PATH') . '/originals');
         self::ensureDir(Config::get('UPLOAD_PATH') . '/thumbs');
 
-        // Session config (só relevante em request HTTP, mas seguro chamar em CLI)
-        if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE) {
-            ini_set('session.save_path', Config::get('STORAGE_PATH') . '/sessions');
-            ini_set('session.cookie_httponly', '1');
-            ini_set('session.cookie_secure', '1');
-            ini_set('session.cookie_samesite', 'Lax');
+        // Session save_path: cookies são configurados em Auth\Session::start()
+        // pra permitir 'Secure' condicional (HTTPS sim, HTTP LAN não)
+        if (PHP_SAPI !== 'cli') {
+            ini_set('session.save_path', (string) Config::get('STORAGE_PATH') . '/sessions');
             ini_set('session.use_strict_mode', '1');
-            session_name((string) Config::get('SESSION_NAME', 'arkham_session'));
+            ini_set('session.gc_maxlifetime', (string) Config::get('SESSION_LIFETIME', '86400'));
         }
 
         // Configura View pra apontar pro diretório de templates

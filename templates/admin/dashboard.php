@@ -43,7 +43,7 @@ $categoryTree = [
     ['name' => 'Wifi', 'slug' => 'wifi', 'count' => 3],
 ];
 $activeCategory = 'indica';
-$userInitials   = 'CR';
+// $currentUser vem do middleware/index.php. $userInitials e role são calculados no layout.
 
 // Mock: stats
 $stats = [
