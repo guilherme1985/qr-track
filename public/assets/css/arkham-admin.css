@@ -1,0 +1,359 @@
+/* =====================================================================
+   ARKHAM FILES · Admin shell
+   Header + sidebar + content area do dashboard administrativo.
+   ===================================================================== */
+
+/* ---------- Estrutura geral do shell ---------------------------------- */
+.af-admin-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* ---------- Header ---------------------------------------------------- */
+.af-admin-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 18px;
+    background: var(--af-bg-2);
+    border-bottom: 0.5px solid var(--af-border);
+    flex-shrink: 0;
+}
+.af-admin-header__brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+}
+.af-admin-header__brand-text {
+    line-height: 1.2;
+}
+.af-admin-header__brand-text .af-display {
+    font-size: 13px;
+    color: var(--af-phosphor);
+    letter-spacing: 4px;
+}
+.af-admin-header__brand-text .af-subtitle {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--af-text-mute);
+    margin-top: 2px;
+}
+.af-admin-header__search {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+}
+.af-admin-header__search-box {
+    background: var(--af-bg);
+    border: 0.5px solid var(--af-border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    width: 320px;
+    max-width: 100%;
+    color: var(--af-text-mute);
+    transition: border-color .15s ease;
+}
+.af-admin-header__search-box:focus-within { border-color: var(--af-phosphor); }
+.af-admin-header__search-box input {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--af-text);
+    font-family: var(--af-font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+}
+.af-admin-header__search-box input::placeholder {
+    color: var(--af-text-mute);
+}
+.af-admin-header__actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.af-admin-header__user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 14px;
+    border-left: 0.5px solid var(--af-border);
+}
+.af-admin-header__avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--af-phosphor);
+    color: var(--af-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0;
+}
+.af-admin-header__user-info {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    line-height: 1.3;
+    text-transform: uppercase;
+}
+.af-admin-header__user-info > div:nth-child(2) {
+    font-size: 8px;
+    color: var(--af-phosphor);
+    margin-top: 1px;
+}
+
+/* ---------- Layout horizontal (sidebar + content) ------------------- */
+.af-admin-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ---------- Sidebar --------------------------------------------------- */
+.af-admin-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    border-right: 0.5px solid var(--af-border);
+    background: var(--af-bg-3);
+    padding: 18px 14px;
+    overflow-y: auto;
+}
+.af-sidebar__heading {
+    font-family: var(--af-font-display);
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--af-gold);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+}
+.af-sidebar__heading--secondary {
+    margin-top: 20px;
+}
+.af-sidebar__divider-soft {
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--af-text-mute);
+    margin-bottom: 12px;
+    user-select: none;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+/* ---------- Tree de categorias --------------------------------------- */
+.af-tree {
+    font-size: 11px;
+    line-height: 1.9;
+    letter-spacing: 0.5px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.af-tree li {
+    list-style: none;
+}
+.af-tree__item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--af-text);
+    cursor: pointer;
+    padding: 1px 0;
+    text-decoration: none;
+    transition: color .15s ease;
+}
+.af-tree__item:hover {
+    color: var(--af-phosphor);
+    text-decoration: none;
+}
+.af-tree__item--child {
+    color: var(--af-text-soft);
+}
+.af-tree__item--active {
+    color: var(--af-phosphor);
+    background: var(--af-phosphor-glow);
+    margin: 0 -14px;
+    padding: 2px 14px 2px 12px;
+    border-left: 2px solid var(--af-phosphor);
+}
+.af-tree__caret {
+    width: 12px;
+    flex-shrink: 0;
+    color: currentColor;
+}
+.af-tree__count {
+    margin-left: auto;
+    color: var(--af-text-mute);
+    font-size: 10px;
+}
+.af-tree__children {
+    list-style: none;
+    padding-left: 18px;
+    margin: 0;
+}
+.af-tree__children .af-tree__children {
+    padding-left: 18px;  /* nível 3 */
+}
+
+/* ---------- Content area --------------------------------------------- */
+.af-admin-content {
+    flex: 1;
+    padding: 22px 24px;
+    overflow-y: auto;
+    min-width: 0;  /* evita overflow horizontal em flex children */
+}
+.af-admin-content__title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.af-admin-content__title {
+    font-family: var(--af-font-display);
+    font-size: 14px;
+    letter-spacing: 5px;
+    color: var(--af-text);
+    text-transform: uppercase;
+}
+
+/* ---------- Stats grid ----------------------------------------------- */
+.af-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.af-stat {
+    background: var(--af-bg-2);
+    border: 0.5px solid var(--af-border);
+    padding: 12px 14px;
+}
+.af-stat__label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--af-text-mute);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+.af-stat__value {
+    font-family: var(--af-font-display);
+    font-size: 22px;
+    line-height: 1;
+}
+.af-stat--phosphor .af-stat__value { color: var(--af-phosphor); }
+.af-stat--gold     .af-stat__value { color: var(--af-gold); }
+.af-stat--blood    .af-stat__value { color: var(--af-blood-bright); }
+
+/* ---------- Filter bar ----------------------------------------------- */
+.af-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+/* ---------- "Case file" rows na listagem do dashboard --------------- */
+.af-case-list {
+    border: 0.5px solid var(--af-border);
+}
+.af-case-list__head,
+.af-case-list__row {
+    display: grid;
+    grid-template-columns: 30px 1fr 90px 100px;
+    gap: 10px;
+    padding: 11px 14px;
+    align-items: center;
+    border-bottom: 0.5px solid var(--af-border);
+}
+.af-case-list__head {
+    background: var(--af-bg-2);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--af-text-mute);
+    text-transform: uppercase;
+}
+.af-case-list__row {
+    background: transparent;
+    transition: background .15s ease;
+    cursor: pointer;
+}
+.af-case-list__row:hover { background: var(--af-bg-2); }
+.af-case-list__row:last-child { border-bottom: 0; }
+.af-case-list__title {
+    font-family: var(--af-font-editorial);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--af-text);
+    line-height: 1.3;
+}
+.af-case-list__meta {
+    font-size: 10px;
+    color: var(--af-text-mute);
+    letter-spacing: 1px;
+    margin-top: 2px;
+    text-transform: lowercase;
+}
+.af-case-list__scans {
+    text-align: right;
+    font-family: var(--af-font-display);
+    font-size: 16px;
+}
+
+/* ---------- Pagination ----------------------------------------------- */
+.af-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--af-text-mute);
+    text-transform: uppercase;
+}
+.af-pagination__pages {
+    display: flex;
+    gap: 6px;
+}
+.af-pagination__page {
+    padding: 4px 10px;
+    border: 0.5px solid var(--af-border-soft);
+    color: var(--af-text-soft);
+    text-decoration: none;
+    transition: all .15s ease;
+}
+.af-pagination__page:hover {
+    color: var(--af-phosphor);
+    border-color: var(--af-phosphor);
+    text-decoration: none;
+}
+.af-pagination__page--active {
+    color: var(--af-phosphor);
+    border-color: var(--af-phosphor);
+}
+
+/* ---------- Responsive ----------------------------------------------- */
+@media (max-width: 900px) {
+    .af-admin-header__search { display: none; }
+    .af-admin-sidebar { width: 180px; }
+    .af-stats-grid    { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+    .af-admin-body { flex-direction: column; }
+    .af-admin-sidebar {
+        width: 100%;
+        border-right: 0;
+        border-bottom: 0.5px solid var(--af-border);
+        max-height: 240px;
+    }
+    .af-admin-content { padding: 18px; }
+    .af-case-list__head,
+    .af-case-list__row { grid-template-columns: 24px 1fr 70px; }
+    .af-case-list__row > :nth-child(4),
+    .af-case-list__head > :nth-child(4) { display: none; }
+}

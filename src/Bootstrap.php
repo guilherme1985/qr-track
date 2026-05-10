@@ -11,16 +11,19 @@ namespace ArkhamFiles;
  *   - .env loading
  *   - Timezone, error reporting, session config
  *   - Storage paths (creates directories on first run)
+ *   - I18n preload
  */
 final class Bootstrap
 {
     private static bool $initialized = false;
+    private static ?string $rootDir   = null;
 
     public static function init(string $rootDir): void
     {
         if (self::$initialized) {
             return;
         }
+        self::$rootDir = $rootDir;
 
         // Composer autoload
         $autoload = $rootDir . '/vendor/autoload.php';
@@ -30,6 +33,10 @@ final class Bootstrap
             );
         }
         require $autoload;
+
+        // Helpers globais (e(), t(), icon()) — ficam no namespace global
+        // pra serem usáveis direto nos templates.
+        require_once __DIR__ . '/helpers.php';
 
         // .env
         Config::load($rootDir . '/.env');
@@ -65,7 +72,21 @@ final class Bootstrap
             session_name((string) Config::get('SESSION_NAME', 'arkham_session'));
         }
 
+        // Configura View pra apontar pro diretório de templates
+        View::setTemplatesDir($rootDir . '/templates');
+
+        // Carrega strings PT-BR (única locale por enquanto)
+        I18n::load('pt-br');
+
         self::$initialized = true;
+    }
+
+    public static function rootDir(): string
+    {
+        if (self::$rootDir === null) {
+            throw new \RuntimeException('Bootstrap::init() not called yet');
+        }
+        return self::$rootDir;
     }
 
     private static function ensureDir(?string $path): void

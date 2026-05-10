@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 /**
  * Arkham Files — front controller.
- *
- * All HTTP requests land here. Routes defined below.
  */
 
 require __DIR__ . '/../src/Bootstrap.php';
@@ -17,42 +15,48 @@ Bootstrap::init($rootDir);
 $router = new Bramus\Router\Router();
 
 // =====================================================================
-// Welcome / health page (será substituída em PR posteriores)
+// Welcome / status / smoke test
 // =====================================================================
 $router->get('/', function () use ($rootDir) {
     require $rootDir . '/templates/welcome.php';
 });
 
 // =====================================================================
-// Public routes (placeholders — implementados em PRs posteriores)
+// Admin (placeholders visuais — funcionalidade vem nos PRs seguintes)
+// =====================================================================
+$router->get('/admin/?', function () use ($rootDir) {
+    header('Location: /admin/dashboard', true, 302);
+    exit;
+});
+$router->get('/admin/login', function () use ($rootDir) {
+    require $rootDir . '/templates/admin/login.php';
+});
+$router->get('/admin/dashboard', function () use ($rootDir) {
+    require $rootDir . '/templates/admin/dashboard.php';
+});
+$router->get('/admin/settings', function () use ($rootDir) {
+    require $rootDir . '/templates/admin/settings.php';
+});
+
+// =====================================================================
+// Public scan placeholder (implementado em PRs posteriores)
 // =====================================================================
 $router->get('/p/(.+)', function (string $publicId) use ($rootDir) {
     http_response_code(404);
-    $errorTitle = 'Em breve';
-    $errorSubtitle = 'Visualizador de QR ainda não implementado';
-    $errorCode = 'WIP';
+    $errorTitle    = t('errors.wip.title');
+    $errorSubtitle = t('errors.wip.subtitle');
+    $errorCode     = 'WIP';
     require $rootDir . '/templates/error.php';
 });
 
 // =====================================================================
-// Admin routes (placeholders — implementados em PRs posteriores)
-// =====================================================================
-$router->get('/admin/?', function () use ($rootDir) {
-    http_response_code(503);
-    $errorTitle = 'Acesso restrito';
-    $errorSubtitle = 'Área administrativa em construção';
-    $errorCode = 'WIP';
-    require $rootDir . '/templates/error.php';
-});
-
-// =====================================================================
-// 404 handler
+// 404
 // =====================================================================
 $router->set404(function () use ($rootDir) {
     http_response_code(404);
-    $errorTitle = 'Paciente não localizado';
-    $errorSubtitle = 'Transferido para o Bloco H';
-    $errorCode = '404';
+    $errorTitle    = t('errors.not_found.title');
+    $errorSubtitle = t('errors.not_found.subtitle');
+    $errorCode     = '404';
     require $rootDir . '/templates/error.php';
 });
 
