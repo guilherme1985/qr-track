@@ -1,0 +1,119 @@
+/* ============================================================================
+   Seletores visuais do formulário de categoria
+   Adicionado no hotfix v1.4.1 (PR 5.1).
+   ========================================================================== */
+
+/* Grid de ícones (~5-6 tiles por linha em desktop) */
+.af-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 8px;
+    max-width: 560px;
+}
+
+.af-icon-tile {
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0.5px solid var(--af-border);
+    color: var(--af-text-soft);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    font: inherit;
+}
+
+.af-icon-tile:hover {
+    border-color: var(--af-phosphor);
+    color: var(--af-phosphor);
+    background: rgba(125, 219, 79, 0.04);
+}
+
+.af-icon-tile:focus-visible {
+    outline: 2px solid var(--af-phosphor);
+    outline-offset: 2px;
+}
+
+.af-icon-tile--selected {
+    border-color: var(--af-phosphor);
+    color: var(--af-phosphor);
+    background: rgba(125, 219, 79, 0.10);
+    box-shadow: inset 0 0 0 1px var(--af-phosphor);
+}
+
+.af-icon-tile__empty {
+    color: var(--af-faint);
+    font-family: var(--af-font-mono);
+    font-size: 18px;
+    line-height: 1;
+}
+
+.af-icon-tile--selected .af-icon-tile__empty {
+    color: var(--af-phosphor);
+}
+
+/* Grid de cores (tiles maiores, sem aspecto quadrado severo) */
+.af-color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 8px;
+    max-width: 560px;
+}
+
+.af-color-tile {
+    aspect-ratio: 1 / 1;
+    border: 0.5px solid var(--af-border);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    padding: 0;
+    font: inherit;
+    position: relative;
+    overflow: hidden;
+}
+
+.af-color-tile:hover {
+    transform: scale(1.05);
+    border-color: var(--af-phosphor);
+}
+
+.af-color-tile:focus-visible {
+    outline: 2px solid var(--af-phosphor);
+    outline-offset: 2px;
+}
+
+.af-color-tile--selected {
+    border-color: var(--af-phosphor);
+    box-shadow: 0 0 0 2px var(--af-phosphor),
+                inset 0 0 0 2px var(--af-bg);
+}
+
+.af-color-tile--selected::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--af-phosphor);
+    font-size: 18px;
+    text-shadow: 0 0 4px var(--af-bg), 0 0 4px var(--af-bg);
+    pointer-events: none;
+}
+
+.af-color-tile__empty {
+    color: var(--af-faint);
+    font-family: var(--af-font-mono);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+/* Tamanho ícone médio (entre sm e lg) — usado nos tiles */
+.af-icon--md {
+    width: 22px;
+    height: 22px;
+}

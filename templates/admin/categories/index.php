@@ -63,6 +63,12 @@ ob_start();
                 <tr>
                     <td>
                         <span class="af-mono af-faint"><?= e($indent) ?></span>
+                        <?php if ($cat->color): ?>
+                            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:<?= e($cat->color) ?>;vertical-align:middle;margin-right:6px"></span>
+                        <?php endif; ?>
+                        <?php if ($cat->icon): ?>
+                            <span style="vertical-align:middle;margin-right:6px;color:<?= $cat->color ? e($cat->color) : 'var(--af-gold)' ?>"><?= icon($cat->icon, 'af-icon--sm') ?></span>
+                        <?php endif; ?>
                         <span class="af-w-500"><?= e($cat->name) ?></span>
                     </td>
                     <td class="af-mono af-fs-11 af-soft"><?= e($cat->slug) ?></td>

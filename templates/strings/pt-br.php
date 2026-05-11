@@ -198,9 +198,11 @@ return [
             'form_parent_none'   => '— raiz (nível 0) —',
             'form_parent_help'   => 'Defina a categoria pai. Só categorias com nível < 3 aparecem aqui.',
             'form_icon'          => 'Ícone (opcional)',
-            'form_icon_help'     => 'Nome do ícone Tabler (ex: folder, leaf, photo).',
+            'form_icon_help'     => 'Selecione um ícone para identificar a categoria visualmente.',
+            'form_icon_none'     => 'Sem ícone',
             'form_color'         => 'Cor (opcional)',
-            'form_color_help'    => 'Código hex (#RRGGBB) ou nome de variável CSS.',
+            'form_color_help'    => 'Selecione uma cor da paleta institucional.',
+            'form_color_none'    => 'Sem cor',
             'form_sort_order'    => 'Ordem',
             'form_sort_order_help' => 'Menor número aparece primeiro. Empata por nome.',
 

@@ -39,6 +39,7 @@ use ArkhamFiles\Auth\PasswordPolicy;
 use ArkhamFiles\Auth\PasswordGenerator;
 use ArkhamFiles\Auth\TwoFactor;
 use ArkhamFiles\Category;
+use ArkhamFiles\CategoryAttributes;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -820,8 +821,8 @@ $router->post('/admin/categories/new', function () use ($rootDir, $verifyCsrf) {
     $category = null;
     $oldName       = trim((string) ($_POST['name'] ?? ''));
     $oldSlug       = trim((string) ($_POST['slug'] ?? ''));
-    $oldIcon       = trim((string) ($_POST['icon'] ?? ''));
-    $oldColor      = trim((string) ($_POST['color'] ?? ''));
+    $oldIcon       = (string) CategoryAttributes::normalizeIcon((string) ($_POST['icon'] ?? '')) ?: '';
+    $oldColor      = (string) CategoryAttributes::normalizeColor((string) ($_POST['color'] ?? '')) ?: '';
     $oldSortOrder  = (int) ($_POST['sort_order'] ?? 0);
     $rawParent     = $_POST['parent_id'] ?? '';
     $oldParentId   = ($rawParent === '' || $rawParent === '0') ? null : (int) $rawParent;
@@ -898,8 +899,8 @@ $router->post('/admin/categories/(\d+)/edit', function (string $id) use ($rootDi
     $isEdit = true;
     $oldName      = trim((string) ($_POST['name'] ?? ''));
     $oldSlug      = trim((string) ($_POST['slug'] ?? ''));
-    $oldIcon      = trim((string) ($_POST['icon'] ?? ''));
-    $oldColor     = trim((string) ($_POST['color'] ?? ''));
+    $oldIcon      = (string) CategoryAttributes::normalizeIcon((string) ($_POST['icon'] ?? '')) ?: '';
+    $oldColor     = (string) CategoryAttributes::normalizeColor((string) ($_POST['color'] ?? '')) ?: '';
     $oldSortOrder = (int) ($_POST['sort_order'] ?? 0);
     $oldParentId  = $category->parentId; // imutável
 

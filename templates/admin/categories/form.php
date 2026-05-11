@@ -105,20 +105,74 @@ ob_start();
         </div>
     <?php endif; ?>
 
-    <div class="af-flex af-gap-3">
-        <div style="flex:1">
-            <label class="af-label" for="c-icon"><?= e(t('admin.categories.form_icon')) ?></label>
-            <input id="c-icon" name="icon" type="text" class="af-input af-mono"
-                   value="<?= e($oldIcon) ?>" placeholder="folder">
-            <div class="af-fs-10 af-mute af-mt-1"><?= e(t('admin.categories.form_icon_help')) ?></div>
+    <!-- Seletor de ícone (grid visual) -->
+    <div>
+        <label class="af-label"><?= e(t('admin.categories.form_icon')) ?></label>
+        <input type="hidden" name="icon" id="c-icon-value" value="<?= e($oldIcon) ?>">
+        <div class="af-icon-grid" role="radiogroup" aria-label="<?= e(t('admin.categories.form_icon')) ?>">
+            <!-- Opção "sem ícone" -->
+            <button type="button" class="af-icon-tile<?= $oldIcon === '' ? ' af-icon-tile--selected' : '' ?>"
+                    data-icon="" title="<?= e(t('admin.categories.form_icon_none')) ?>"
+                    aria-label="<?= e(t('admin.categories.form_icon_none')) ?>">
+                <span class="af-icon-tile__empty">∅</span>
+            </button>
+            <?php foreach (\ArkhamFiles\CategoryAttributes::icons() as $iconName => $iconLabel): ?>
+                <button type="button"
+                        class="af-icon-tile<?= $oldIcon === $iconName ? ' af-icon-tile--selected' : '' ?>"
+                        data-icon="<?= e($iconName) ?>"
+                        title="<?= e($iconLabel) ?>"
+                        aria-label="<?= e($iconLabel) ?>">
+                    <?= icon($iconName, 'af-icon--md') ?>
+                </button>
+            <?php endforeach; ?>
         </div>
-        <div style="flex:1">
-            <label class="af-label" for="c-color"><?= e(t('admin.categories.form_color')) ?></label>
-            <input id="c-color" name="color" type="text" class="af-input af-mono"
-                   value="<?= e($oldColor) ?>" placeholder="#7DDB4F">
-            <div class="af-fs-10 af-mute af-mt-1"><?= e(t('admin.categories.form_color_help')) ?></div>
-        </div>
+        <div class="af-fs-10 af-mute af-mt-2"><?= e(t('admin.categories.form_icon_help')) ?></div>
     </div>
+
+    <!-- Seletor de cor (paleta visual) -->
+    <div>
+        <label class="af-label"><?= e(t('admin.categories.form_color')) ?></label>
+        <input type="hidden" name="color" id="c-color-value" value="<?= e($oldColor) ?>">
+        <div class="af-color-grid" role="radiogroup" aria-label="<?= e(t('admin.categories.form_color')) ?>">
+            <!-- Opção "sem cor" -->
+            <button type="button" class="af-color-tile<?= $oldColor === '' ? ' af-color-tile--selected' : '' ?>"
+                    data-color=""
+                    title="<?= e(t('admin.categories.form_color_none')) ?>"
+                    aria-label="<?= e(t('admin.categories.form_color_none')) ?>"
+                    style="background:transparent;border-style:dashed">
+                <span class="af-color-tile__empty">∅</span>
+            </button>
+            <?php foreach (\ArkhamFiles\CategoryAttributes::colors() as $colorHex => $colorLabel): ?>
+                <button type="button"
+                        class="af-color-tile<?= strtoupper($oldColor) === strtoupper($colorHex) ? ' af-color-tile--selected' : '' ?>"
+                        data-color="<?= e($colorHex) ?>"
+                        title="<?= e($colorLabel . ' · ' . $colorHex) ?>"
+                        aria-label="<?= e($colorLabel) ?>"
+                        style="background:<?= e($colorHex) ?>">
+                </button>
+            <?php endforeach; ?>
+        </div>
+        <div class="af-fs-10 af-mute af-mt-2"><?= e(t('admin.categories.form_color_help')) ?></div>
+    </div>
+
+    <script>
+    // Toggle de seleção dos tiles (vanilla JS, sem framework)
+    (function () {
+        function bindGrid(gridSelector, valueInputId, tileSelectedClass, dataAttr) {
+            document.querySelectorAll(gridSelector + ' button').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll(gridSelector + ' button').forEach(function (b) {
+                        b.classList.remove(tileSelectedClass);
+                    });
+                    btn.classList.add(tileSelectedClass);
+                    document.getElementById(valueInputId).value = btn.dataset[dataAttr] || '';
+                });
+            });
+        }
+        bindGrid('.af-icon-grid',  'c-icon-value',  'af-icon-tile--selected',  'icon');
+        bindGrid('.af-color-grid', 'c-color-value', 'af-color-tile--selected', 'color');
+    })();
+    </script>
 
     <div>
         <label class="af-label" for="c-sort"><?= e(t('admin.categories.form_sort_order')) ?></label>
@@ -141,4 +195,5 @@ ob_start();
 $content = ob_get_clean();
 $bodyContent = $content;
 $title = t($pageTitleKey);
+$extraCss = ['/assets/css/arkham-category-form.css'];
 require dirname(dirname(dirname(__DIR__))) . '/templates/layouts/admin.php';

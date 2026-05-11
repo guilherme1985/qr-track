@@ -156,5 +156,6 @@ ob_start();
 $adminBody = ob_get_clean();
 
 $bodyContent = $adminBody;
-$extraCss = ['/assets/css/arkham-admin.css'];
+// Preserva extras que o template filho possa ter adicionado (ex: form de categoria)
+$extraCss = array_merge(['/assets/css/arkham-admin.css'], $extraCss ?? []);
 require dirname(__DIR__) . '/layout.php';
