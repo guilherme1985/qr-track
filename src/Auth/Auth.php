@@ -94,6 +94,19 @@ final class Auth
         // Inicia sessão de forma segura
         Session::start();
         Session::regenerate();
+
+        // Se o usuário tem 2FA ativo, NÃO cria a sessão completa ainda.
+        // Apenas marca o user_id como "pendente de 2FA" — o request
+        // seguinte vai redirecionar pra /admin/2fa/verify, e só após
+        // validar o código TOTP é que user_id real será setado.
+        if ($user->totpEnabled) {
+            Session::set('pending_2fa_user_id', $user->id);
+            Session::set('pending_2fa_started_at', time());
+            // Login parcial — não loga ainda no audit como success
+            return LoginResult::pendingTwoFactor();
+        }
+
+        // Login normal (sem 2FA)
         Session::set('user_id', $user->id);
         Session::set('login_at', time());
 
@@ -209,5 +222,68 @@ final class Auth
         }
         header('Location: /admin/change-password', true, 302);
         exit;
+    }
+
+    /**
+     * Força admins (role=admin) sem 2FA ativo a configurarem antes de
+     * acessar qualquer outra rota. Curadores não são forçados — podem
+     * ativar opcionalmente via /admin/profile.
+     */
+    public static function enforceTwoFactorSetup(User $user): void
+    {
+        if (!$user->isAdmin() || $user->totpEnabled) {
+            return;
+        }
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        // Permite acesso à própria tela de setup e ao logout
+        if (
+            str_starts_with($uri, '/admin/2fa/setup')
+            || str_starts_with($uri, '/admin/logout')
+        ) {
+            return;
+        }
+        header('Location: /admin/2fa/setup', true, 302);
+        exit;
+    }
+
+    /**
+     * ID do usuário em estado de "esperando código 2FA". Diferente
+     * de currentUserId(): esse só existe entre password OK e código OK.
+     */
+    public static function pendingTwoFactorUserId(): ?int
+    {
+        Session::start();
+        $id = Session::get('pending_2fa_user_id');
+        if (!is_int($id)) {
+            return null;
+        }
+        // Sessão de pending 2FA expira em 10 minutos (anti-stall)
+        $startedAt = Session::get('pending_2fa_started_at');
+        if (!is_int($startedAt) || (time() - $startedAt) > 600) {
+            Session::unset('pending_2fa_user_id');
+            Session::unset('pending_2fa_started_at');
+            return null;
+        }
+        return $id;
+    }
+
+    /**
+     * Completa o login após validação do código TOTP (ou recovery).
+     * Promove pending_2fa_user_id → user_id, regenera sessão de novo,
+     * e registra audit de login_success.
+     */
+    public static function completeTwoFactorLogin(User $user, bool $usedRecovery = false): void
+    {
+        Session::start();
+        Session::regenerate();
+        Session::unset('pending_2fa_user_id');
+        Session::unset('pending_2fa_started_at');
+        Session::set('user_id', $user->id);
+        Session::set('login_at', time());
+
+        Audit::log('login_success', $user->id, null, null,
+            ['role' => $user->role, 'second_factor' => $usedRecovery ? 'recovery' : 'totp'],
+            \ArkhamFiles\Http::clientIp(),
+            $_SERVER['HTTP_USER_AGENT'] ?? null);
     }
 }

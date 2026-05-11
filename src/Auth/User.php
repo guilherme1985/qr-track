@@ -31,6 +31,8 @@ final class User
         public readonly ?string $passwordChangedAt,
         public readonly string $createdAt,
         public readonly bool $totpEnabled,
+        public readonly ?string $totpSecret = null,
+        public readonly ?string $recoveryCodes = null,
     ) {}
 
     public function isAdmin():    bool { return $this->role === self::ROLE_ADMIN; }
@@ -273,6 +275,8 @@ final class User
             passwordChangedAt:  isset($row['password_changed_at']) ? (string) $row['password_changed_at'] : null,
             createdAt:          (string) $row['created_at'],
             totpEnabled:        (bool) ($row['totp_enabled'] ?? 0),
+            totpSecret:         isset($row['totp_secret']) ? (string) $row['totp_secret'] : null,
+            recoveryCodes:      isset($row['recovery_codes']) ? (string) $row['recovery_codes'] : null,
         );
     }
 }

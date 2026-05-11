@@ -71,7 +71,7 @@ ob_start();
                             <form method="post" action="/admin/users/<?= e((string)$u->id) ?>/enable" style="display:inline">
                                 <?= \ArkhamFiles\Auth\Session::csrfField() ?>
                                 <button type="submit" class="af-fs-10 af-track-1 af-phosphor"
-                                        style="background:transparent;border:0;cursor:pointer;font:inherit;padding:0">
+                                        style="background:transparent;border:0;cursor:pointer;font:inherit;padding:0;margin-right:14px">
                                     <?= e(mb_strtoupper(t('admin.users.action_enable'))) ?>
                                 </button>
                             </form>
@@ -80,11 +80,16 @@ ob_start();
                                   onsubmit="return confirm('<?= e(t('common.confirm_delete')) ?>')">
                                 <?= \ArkhamFiles\Auth\Session::csrfField() ?>
                                 <button type="submit" class="af-fs-10 af-track-1 af-blood"
-                                        style="background:transparent;border:0;cursor:pointer;font:inherit;padding:0">
+                                        style="background:transparent;border:0;cursor:pointer;font:inherit;padding:0;margin-right:14px">
                                     <?= e(mb_strtoupper(t('admin.users.action_disable'))) ?>
                                 </button>
                             </form>
                         <?php endif; ?>
+                        <a href="/admin/users/<?= e((string)$u->id) ?>/delete"
+                           class="af-fs-10 af-track-1 af-blood"
+                           style="text-decoration:underline">
+                            <?= e(mb_strtoupper(t('admin.users.action_delete'))) ?>
+                        </a>
                     <?php endif; ?>
                 </td>
             </tr>

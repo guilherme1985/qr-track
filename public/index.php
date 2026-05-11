@@ -37,6 +37,7 @@ use ArkhamFiles\Auth\Session;
 use ArkhamFiles\Auth\User;
 use ArkhamFiles\Auth\PasswordPolicy;
 use ArkhamFiles\Auth\PasswordGenerator;
+use ArkhamFiles\Auth\TwoFactor;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -108,6 +109,12 @@ $router->post('/admin/login', function () use ($rootDir, $verifyCsrf) {
             : []);
         $oldUsername = $username;
         require $rootDir . '/templates/admin/login.php';
+        return;
+    }
+
+    // Se o user tem 2FA ativo, vai pra verify primeiro
+    if ($result->pendingTwoFactor) {
+        header('Location: /admin/2fa/verify', true, 302);
         return;
     }
 
@@ -193,6 +200,7 @@ $router->post('/admin/change-password', function () use ($rootDir, $verifyCsrf) 
 $router->get('/admin/profile', function () use ($rootDir) {
     $user = Auth::requireAuth();
     Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
     $currentUser = $user;
     require $rootDir . '/templates/admin/profile.php';
 });
@@ -212,6 +220,7 @@ $router->get('/admin/', function () {
 $router->get('/admin/dashboard', function () use ($rootDir) {
     $user = Auth::requireAuth();
     Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
     $currentUser = $user;
     require $rootDir . '/templates/admin/dashboard.php';
 });
@@ -219,6 +228,7 @@ $router->get('/admin/dashboard', function () use ($rootDir) {
 $router->get('/admin/settings', function () use ($rootDir) {
     $user = Auth::requireAuth();
     Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
     $currentUser = $user;
     require $rootDir . '/templates/admin/settings.php';
 });
@@ -229,6 +239,7 @@ $router->get('/admin/settings', function () use ($rootDir) {
 $router->get('/admin/users', function () use ($rootDir) {
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
     $users = User::listAll();
     $flashMessage = Session::get('flash');
@@ -239,6 +250,7 @@ $router->get('/admin/users', function () use ($rootDir) {
 $router->get('/admin/users/new', function () use ($rootDir) {
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
     require $rootDir . '/templates/admin/users/new.php';
 });
@@ -247,6 +259,7 @@ $router->post('/admin/users/new', function () use ($rootDir, $verifyCsrf) {
     if (!$verifyCsrf()) return;
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
 
     $oldUsername = trim((string) ($_POST['username'] ?? ''));
@@ -291,6 +304,7 @@ $router->post('/admin/users/new', function () use ($rootDir, $verifyCsrf) {
 $router->get('/admin/users/(\d+)/edit', function (string $id) use ($rootDir) {
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
     $user = User::findById((int) $id);
     if ($user === null) {
@@ -309,6 +323,7 @@ $router->post('/admin/users/(\d+)/edit', function (string $id) use ($rootDir, $v
     if (!$verifyCsrf()) return;
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
 
     $userId = (int) $id;
@@ -371,6 +386,7 @@ $router->post('/admin/users/(\d+)/edit', function (string $id) use ($rootDir, $v
 $router->get('/admin/users/(\d+)/reset-password', function (string $id) use ($rootDir) {
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
     $user = User::findById((int) $id);
     if ($user === null) {
@@ -385,6 +401,7 @@ $router->post('/admin/users/(\d+)/reset-password', function (string $id) use ($r
     if (!$verifyCsrf()) return;
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $currentUser = $admin;
     $user = User::findById((int) $id);
     if ($user === null) {
@@ -405,6 +422,7 @@ $router->post('/admin/users/(\d+)/disable', function (string $id) use ($verifyCs
     if (!$verifyCsrf()) return;
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $userId = (int) $id;
 
     if ($userId === $admin->id) {
@@ -432,6 +450,7 @@ $router->post('/admin/users/(\d+)/enable', function (string $id) use ($verifyCsr
     if (!$verifyCsrf()) return;
     $admin = Auth::requireRole(User::ROLE_ADMIN);
     Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
     $userId = (int) $id;
 
     $user = User::findById($userId);
@@ -447,6 +466,316 @@ $router->post('/admin/users/(\d+)/enable', function (string $id) use ($verifyCsr
 
     Session::set('flash', t('admin.users.flash_enabled', ['user' => htmlspecialchars($user->username, ENT_QUOTES, 'UTF-8')]));
     header('Location: /admin/users', true, 302);
+});
+
+// =====================================================================
+// /admin/users/{id}/delete  (admin only) — exclusão permanente
+// =====================================================================
+$router->get('/admin/users/(\d+)/delete', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $userId = (int) $id;
+    if ($userId === $admin->id) {
+        Session::set('flash', '⚠ ' . t('errors.users.cant_delete_self'));
+        header('Location: /admin/users', true, 302);
+        return;
+    }
+    $user = User::findById($userId);
+    if ($user === null) {
+        http_response_code(404);
+        echo \ArkhamFiles\View::render('error', [
+            'errorTitle'    => t('errors.users.not_found'),
+            'errorSubtitle' => 'USER',
+            'errorCode'     => '404',
+        ]);
+        return;
+    }
+
+    // Coleta estatísticas pra mostrar antes do delete.
+    // (QRs/notas/strains/imagens são 0 hoje porque CRUD não existe ainda.)
+    $pdo = \ArkhamFiles\Database::pdo();
+
+    $archives = 0;
+    try {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM qrcodes WHERE created_by = :id');
+        $stmt->execute([':id' => $userId]);
+        $archives = (int) $stmt->fetchColumn();
+    } catch (\Throwable) { /* tabela pode não ter created_by ainda */ }
+
+    $scans = 0; // Tabela scans não tem coluna user_id; conta por qrcodes do user
+    try {
+        $stmt = $pdo->prepare('
+            SELECT COUNT(*) FROM scans s
+            INNER JOIN qrcodes q ON q.id = s.qrcode_id
+            WHERE q.created_by = :id
+        ');
+        $stmt->execute([':id' => $userId]);
+        $scans = (int) $stmt->fetchColumn();
+    } catch (\Throwable) { /* idem */ }
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM audit_log WHERE user_id = :id');
+    $stmt->execute([':id' => $userId]);
+    $auditEvents = (int) $stmt->fetchColumn();
+
+    $stats = [
+        'archives'      => $archives,
+        'scans'         => $scans,
+        'audit_events'  => $auditEvents,
+    ];
+    require $rootDir . '/templates/admin/users/delete.php';
+});
+
+$router->post('/admin/users/(\d+)/delete', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $userId = (int) $id;
+
+    // Proteções
+    if ($userId === $admin->id) {
+        Session::set('flash', '⚠ ' . t('errors.users.cant_delete_self'));
+        header('Location: /admin/users', true, 302);
+        return;
+    }
+    $user = User::findById($userId);
+    if ($user === null) {
+        http_response_code(404);
+        return;
+    }
+    if ($user->isAdmin()) {
+        // Pode estar tentando deletar o único admin
+        $admins = array_filter(User::listAll(), fn(User $u) => $u->isAdmin() && !$u->isDisabled());
+        if (count($admins) <= 1) {
+            $errors = [t('errors.users.cant_delete_last_admin')];
+            $stats = ['archives' => 0, 'scans' => 0, 'audit_events' => 0];
+            require $rootDir . '/templates/admin/users/delete.php';
+            return;
+        }
+    }
+
+    $typed = trim((string) ($_POST['confirm_username'] ?? ''));
+    if ($typed !== $user->username) {
+        $errors = [t('errors.users.delete_confirmation_mismatch')];
+        $stats = ['archives' => 0, 'scans' => 0, 'audit_events' => 0];
+        require $rootDir . '/templates/admin/users/delete.php';
+        return;
+    }
+
+    // Audit ANTES de deletar (depois o user some)
+    $originalUsername = $user->username;
+    Audit::log('user_deleted', $admin->id, 'user', $userId,
+        ['target_username' => $originalUsername, 'target_role' => $user->role],
+        Http::clientIp(), Http::userAgent());
+
+    // Hard delete. Audit_log.user_id vira NULL via FK (ON DELETE SET NULL),
+    // preservando o histórico mesmo após exclusão.
+    User::delete($userId);
+
+    Session::set('flash', t('admin.users.flash_deleted', ['user' => htmlspecialchars($originalUsername, ENT_QUOTES, 'UTF-8')]));
+    header('Location: /admin/users', true, 302);
+});
+
+// =====================================================================
+// /admin/2fa/setup  (qualquer user autenticado)
+// =====================================================================
+$router->get('/admin/2fa/setup', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    $currentUser = $user;
+
+    if ($user->totpEnabled) {
+        // Já está ativo — vai direto pro profile
+        header('Location: /admin/profile', true, 302);
+        return;
+    }
+
+    // Gera segredo na primeira visita e mantém na sessão até confirmar.
+    // Se o user recarregar, mantém o mesmo segredo até completar setup.
+    Session::start();
+    $secret = Session::get('totp_setup_secret');
+    if (!is_string($secret) || $secret === '') {
+        $secret = TwoFactor::generateSecret();
+        Session::set('totp_setup_secret', $secret);
+    }
+
+    $uri = TwoFactor::provisioningUri($user->username, $secret);
+    $qrSvg = TwoFactor::qrCodeSvg($uri, 240);
+    $manualKey = $secret;
+    require $rootDir . '/templates/admin/2fa/setup.php';
+});
+
+$router->post('/admin/2fa/setup', function () use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    $currentUser = $user;
+
+    if ($user->totpEnabled) {
+        header('Location: /admin/profile', true, 302);
+        return;
+    }
+
+    Session::start();
+    $secret = Session::get('totp_setup_secret');
+    $code = (string) ($_POST['code'] ?? '');
+
+    if (!is_string($secret) || $secret === '' || !TwoFactor::verifyCode($secret, $code)) {
+        $errors = [t('errors.auth.totp_invalid')];
+        $uri = TwoFactor::provisioningUri($user->username, (string) $secret);
+        $qrSvg = TwoFactor::qrCodeSvg($uri, 240);
+        $manualKey = (string) $secret;
+        require $rootDir . '/templates/admin/2fa/setup.php';
+        return;
+    }
+
+    // Ativa
+    TwoFactor::activate($user->id, $secret);
+
+    // Gera e armazena recovery codes (mostra na próxima request)
+    $codes = TwoFactor::generateRecoveryCodes();
+    TwoFactor::saveRecoveryCodes($user->id, $codes);
+    Session::set('show_recovery_codes', $codes);
+    Session::unset('totp_setup_secret');
+
+    Audit::log('2fa_enabled', $user->id, null, null,
+        ['role' => $user->role],
+        Http::clientIp(), Http::userAgent());
+
+    header('Location: /admin/2fa/recovery-codes', true, 302);
+});
+
+// Exibe os recovery codes (única vez). Se acessado fora desse fluxo, redirect.
+$router->get('/admin/2fa/recovery-codes', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    $currentUser = $user;
+
+    Session::start();
+    $codes = Session::get('show_recovery_codes');
+    if (!is_array($codes) || $codes === []) {
+        header('Location: /admin/profile', true, 302);
+        return;
+    }
+    require $rootDir . '/templates/admin/2fa/recovery-codes.php';
+});
+
+// Usuário confirma que anotou os códigos — apaga da sessão pra que não
+// possam mais ser exibidos.
+$router->post('/admin/2fa/recovery-codes/confirm', function () use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Session::start();
+    Session::unset('show_recovery_codes');
+    header('Location: /admin/dashboard', true, 302);
+});
+
+// =====================================================================
+// /admin/2fa/verify  (após login, se totp_enabled)
+// =====================================================================
+$router->get('/admin/2fa/verify', function () use ($rootDir) {
+    Session::start();
+    $pendingId = Auth::pendingTwoFactorUserId();
+    if ($pendingId === null) {
+        header('Location: /admin/login', true, 302);
+        return;
+    }
+    $useRecovery = isset($_GET['recovery']);
+    require $rootDir . '/templates/admin/2fa/verify.php';
+});
+
+$router->post('/admin/2fa/verify', function () use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    Session::start();
+    $pendingId = Auth::pendingTwoFactorUserId();
+    if ($pendingId === null) {
+        $errorMessage = t('errors.auth.pending_2fa_expired');
+        require $rootDir . '/templates/admin/login.php';
+        return;
+    }
+
+    $user = User::findById($pendingId);
+    if ($user === null || $user->isDisabled() || !$user->totpEnabled) {
+        Session::unset('pending_2fa_user_id');
+        Session::unset('pending_2fa_started_at');
+        header('Location: /admin/login', true, 302);
+        return;
+    }
+
+    $code = (string) ($_POST['code'] ?? '');
+    $isRecovery = isset($_GET['recovery']) || ($_POST['mode'] ?? '') === 'recovery';
+    $useRecovery = $isRecovery;
+
+    if ($isRecovery) {
+        if (!TwoFactor::consumeRecoveryCode($user->id, $code)) {
+            $errors = [t('errors.auth.recovery_code_invalid')];
+            Audit::log('2fa_verify_failure', $user->id, null, null,
+                ['mode' => 'recovery'],
+                Http::clientIp(), Http::userAgent());
+            require $rootDir . '/templates/admin/2fa/verify.php';
+            return;
+        }
+        Audit::log('2fa_recovery_used', $user->id, null, null,
+            ['remaining' => TwoFactor::remainingRecoveryCodes(User::findById($user->id))],
+            Http::clientIp(), Http::userAgent());
+    } else {
+        $secret = TwoFactor::getSecret($user);
+        if ($secret === null || !TwoFactor::verifyCode($secret, $code)) {
+            $errors = [t('errors.auth.totp_invalid')];
+            Audit::log('2fa_verify_failure', $user->id, null, null,
+                ['mode' => 'totp'],
+                Http::clientIp(), Http::userAgent());
+            require $rootDir . '/templates/admin/2fa/verify.php';
+            return;
+        }
+    }
+
+    // 2FA OK — completa o login
+    Auth::completeTwoFactorLogin($user, $isRecovery);
+
+    if ($user->mustChangePassword) {
+        header('Location: /admin/change-password', true, 302);
+        return;
+    }
+    $returnTo = Session::get('return_to');
+    Session::unset('return_to');
+    $target = (is_string($returnTo) && str_starts_with($returnTo, '/admin/'))
+        ? $returnTo
+        : '/admin/dashboard';
+    header('Location: ' . $target, true, 302);
+});
+
+// =====================================================================
+// /admin/2fa/disable  (POST) — só pra curators; admins não podem
+// =====================================================================
+$router->post('/admin/2fa/disable', function () use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+
+    if ($user->isAdmin()) {
+        // Admin não pode desativar 2FA via UI (precisa do CLI)
+        Session::set('flash', '⚠ Admin não pode desativar 2FA via interface. Use bin/disable-2fa.php se necessário.');
+        header('Location: /admin/profile', true, 302);
+        return;
+    }
+    if (!$user->totpEnabled) {
+        header('Location: /admin/profile', true, 302);
+        return;
+    }
+
+    TwoFactor::deactivate($user->id);
+    Audit::log('2fa_disabled', $user->id, null, null,
+        ['by' => 'self'],
+        Http::clientIp(), Http::userAgent());
+
+    Session::set('flash', '2FA desativado.');
+    header('Location: /admin/profile', true, 302);
 });
 
 // =====================================================================

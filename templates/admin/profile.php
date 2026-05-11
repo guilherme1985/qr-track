@@ -76,6 +76,51 @@ ob_start();
     </table>
 </div>
 
+<div style="max-width:560px" class="af-mb-4">
+    <div class="af-fs-10 af-track-3 af-mute af-mb-2">━━ AUTENTICAÇÃO DE DOIS FATORES ━━</div>
+    <?php if ($currentUser->totpEnabled): ?>
+        <div class="af-panel" style="border-color:var(--af-phosphor)">
+            <div class="af-flex af-justify-b af-items-c">
+                <div>
+                    <div class="af-fs-12 af-phosphor af-track-1">● 2FA ATIVO</div>
+                    <div class="af-fs-10 af-mute af-mt-1">
+                        Códigos de recuperação restantes:
+                        <span class="af-mono af-soft"><?= e((string) \ArkhamFiles\Auth\TwoFactor::remainingRecoveryCodes($currentUser)) ?></span>
+                    </div>
+                </div>
+                <?php if (!$currentUser->isAdmin()): ?>
+                    <form method="post" action="/admin/2fa/disable" style="margin:0"
+                          onsubmit="return confirm('Desativar 2FA? Sua conta voltará a ter apenas senha como autenticação.')">
+                        <?= \ArkhamFiles\Auth\Session::csrfField() ?>
+                        <button type="submit" class="af-btn af-btn--ghost af-btn--sm af-blood">
+                            DESATIVAR 2FA
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <div class="af-fs-9 af-track-2 af-gold">
+                        ⚠ obrigatório para admin
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php else: ?>
+        <div class="af-panel" style="border-color:var(--af-gold)">
+            <div class="af-flex af-justify-b af-items-c">
+                <div>
+                    <div class="af-fs-12 af-gold af-track-1">○ 2FA INATIVO</div>
+                    <div class="af-fs-10 af-mute af-mt-1">
+                        Recomendado para todas as contas com acesso ao admin.
+                    </div>
+                </div>
+                <a href="/admin/2fa/setup" class="af-btn af-btn--primary af-btn--sm">
+                    <?= icon('shield-lock', 'af-icon--sm') ?>
+                    ATIVAR 2FA
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
+</div>
+
 <div style="max-width:560px">
     <a href="/admin/change-password" class="af-btn af-btn--ghost af-btn--sm">
         <?= icon('lock', 'af-icon--sm') ?>
