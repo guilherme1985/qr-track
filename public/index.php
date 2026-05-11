@@ -38,6 +38,7 @@ use ArkhamFiles\Auth\User;
 use ArkhamFiles\Auth\PasswordPolicy;
 use ArkhamFiles\Auth\PasswordGenerator;
 use ArkhamFiles\Auth\TwoFactor;
+use ArkhamFiles\Category;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -776,6 +777,217 @@ $router->post('/admin/2fa/disable', function () use ($verifyCsrf) {
 
     Session::set('flash', '2FA desativado.');
     header('Location: /admin/profile', true, 302);
+});
+
+// =====================================================================
+// /admin/categories  (admin only)
+// =====================================================================
+$router->get('/admin/categories', function () use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+    $flatList = Category::listFlat();
+    $flashMessage = Session::get('flash');
+    Session::unset('flash');
+    require $rootDir . '/templates/admin/categories/index.php';
+});
+
+$router->get('/admin/categories/new', function () use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $isEdit = false;
+    $category = null;
+    // Só categorias com depth < MAX podem ser parent
+    $parents = array_filter(Category::listAll(), fn(Category $c) => $c->canHaveChildren());
+    $oldParentId = isset($_GET['parent']) && ctype_digit((string) $_GET['parent'])
+        ? (int) $_GET['parent']
+        : null;
+    require $rootDir . '/templates/admin/categories/form.php';
+});
+
+$router->post('/admin/categories/new', function () use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $isEdit  = false;
+    $category = null;
+    $oldName       = trim((string) ($_POST['name'] ?? ''));
+    $oldSlug       = trim((string) ($_POST['slug'] ?? ''));
+    $oldIcon       = trim((string) ($_POST['icon'] ?? ''));
+    $oldColor      = trim((string) ($_POST['color'] ?? ''));
+    $oldSortOrder  = (int) ($_POST['sort_order'] ?? 0);
+    $rawParent     = $_POST['parent_id'] ?? '';
+    $oldParentId   = ($rawParent === '' || $rawParent === '0') ? null : (int) $rawParent;
+
+    $errors = [];
+    if ($oldName === '') {
+        $errors[] = t('errors.categories.name_required');
+    }
+    if ($oldSlug !== '' && !preg_match('/^[a-z0-9-]+$/', Category::slugify($oldSlug))) {
+        $errors[] = t('errors.categories.invalid_slug');
+    }
+
+    if ($errors === []) {
+        try {
+            $newId = Category::create(
+                name:          $oldName,
+                parentId:      $oldParentId,
+                requestedSlug: $oldSlug !== '' ? $oldSlug : null,
+                icon:          $oldIcon !== '' ? $oldIcon : null,
+                color:         $oldColor !== '' ? $oldColor : null,
+                sortOrder:     $oldSortOrder,
+            );
+            Audit::log('category_created', $admin->id, 'category', $newId,
+                ['name' => $oldName, 'parent_id' => $oldParentId],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.categories.flash_created', [
+                'name' => htmlspecialchars($oldName, ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/categories', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    $parents = array_filter(Category::listAll(), fn(Category $c) => $c->canHaveChildren());
+    require $rootDir . '/templates/admin/categories/form.php';
+});
+
+$router->get('/admin/categories/(\d+)/edit', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $category = Category::findById((int) $id);
+    if ($category === null) {
+        http_response_code(404);
+        echo \ArkhamFiles\View::render('error', [
+            'errorTitle'    => t('errors.categories.not_found'),
+            'errorSubtitle' => 'CATEGORY',
+            'errorCode'     => '404',
+        ]);
+        return;
+    }
+    $isEdit = true;
+    $parents = [];  // não usado em edit (parent é imutável)
+    require $rootDir . '/templates/admin/categories/form.php';
+});
+
+$router->post('/admin/categories/(\d+)/edit', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $category = Category::findById((int) $id);
+    if ($category === null) {
+        http_response_code(404);
+        return;
+    }
+
+    $isEdit = true;
+    $oldName      = trim((string) ($_POST['name'] ?? ''));
+    $oldSlug      = trim((string) ($_POST['slug'] ?? ''));
+    $oldIcon      = trim((string) ($_POST['icon'] ?? ''));
+    $oldColor     = trim((string) ($_POST['color'] ?? ''));
+    $oldSortOrder = (int) ($_POST['sort_order'] ?? 0);
+    $oldParentId  = $category->parentId; // imutável
+
+    $errors = [];
+    if ($oldName === '') {
+        $errors[] = t('errors.categories.name_required');
+    }
+    if ($oldSlug !== '' && !preg_match('/^[a-z0-9-]+$/', Category::slugify($oldSlug))) {
+        $errors[] = t('errors.categories.invalid_slug');
+    }
+
+    if ($errors === []) {
+        try {
+            Category::update(
+                id:            $category->id,
+                name:          $oldName,
+                requestedSlug: $oldSlug !== '' ? $oldSlug : null,
+                icon:          $oldIcon !== '' ? $oldIcon : null,
+                color:         $oldColor !== '' ? $oldColor : null,
+                sortOrder:     $oldSortOrder,
+            );
+            Audit::log('category_updated', $admin->id, 'category', $category->id,
+                ['name' => $oldName],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.categories.flash_updated', [
+                'name' => htmlspecialchars($oldName, ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/categories', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    $parents = [];
+    require $rootDir . '/templates/admin/categories/form.php';
+});
+
+$router->get('/admin/categories/(\d+)/delete', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $category = Category::findById((int) $id);
+    if ($category === null) {
+        http_response_code(404);
+        echo \ArkhamFiles\View::render('error', [
+            'errorTitle'    => t('errors.categories.not_found'),
+            'errorSubtitle' => 'CATEGORY',
+            'errorCode'     => '404',
+        ]);
+        return;
+    }
+    $childCount = Category::childCount($category->id);
+    $qrCount    = Category::qrCount($category->id);
+    require $rootDir . '/templates/admin/categories/delete.php';
+});
+
+$router->post('/admin/categories/(\d+)/delete', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $category = Category::findById((int) $id);
+    if ($category === null) {
+        http_response_code(404);
+        return;
+    }
+
+    try {
+        $originalName = $category->name;
+        Category::delete($category->id);
+        Audit::log('category_deleted', $admin->id, 'category', $category->id,
+            ['name' => $originalName, 'slug' => $category->slug, 'depth' => $category->depth],
+            Http::clientIp(), Http::userAgent());
+        Session::set('flash', t('admin.categories.flash_deleted', [
+            'name' => htmlspecialchars($originalName, ENT_QUOTES, 'UTF-8'),
+        ]));
+        header('Location: /admin/categories', true, 302);
+    } catch (\DomainException $e) {
+        $errors = [$e->getMessage()];
+        $childCount = Category::childCount($category->id);
+        $qrCount    = Category::qrCount($category->id);
+        require $rootDir . '/templates/admin/categories/delete.php';
+    }
 });
 
 // =====================================================================

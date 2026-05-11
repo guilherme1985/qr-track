@@ -79,7 +79,7 @@ ob_start();
     <?= Session::csrfField() ?>
 
     <div class="af-label" style="line-height:1.6">
-        <?= t('admin.users.delete_confirm_label', ['user' => '<span class="af-mono af-phosphor">' . e($user->username) . '</span>']) /* HTML */ ?>
+        <?= t('admin.users.delete_confirm_label', ['user' => '<span class="af-mono af-phosphor" style="text-transform:none">' . e($user->username) . '</span>']) /* HTML */ ?>
     </div>
     <input type="text" name="confirm_username" class="af-input"
            placeholder="<?= e(t('admin.users.delete_confirm_placeholder')) ?>"

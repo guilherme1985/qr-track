@@ -1,12 +1,11 @@
 <?php
 /**
- * Layout admin: header + sidebar (árvore de categorias) + content area.
+ * Layout admin: header + sidebar (árvore de categorias reais) + content area.
  *
  * Variáveis esperadas (todas opcionais):
  *   $title          → vai pra <title>
  *   $bodyContent    → HTML principal já renderizado
- *   $categoryTree   → árvore mockada de categorias
- *   $activeCategory → slug da categoria ativa
+ *   $activeCategory → slug da categoria ativa (highlight na sidebar)
  *   $currentUser    → ArkhamFiles\Auth\User (vem do middleware)
  *   $flashMessage   → string opcional pra exibir banner de sucesso
  *   $hideSidebar    → bool — ocultar a sidebar (útil em telas focadas)
@@ -15,12 +14,11 @@
 use ArkhamFiles\Auth\Auth;
 use ArkhamFiles\Auth\User;
 use ArkhamFiles\Icon;
+use ArkhamFiles\Category;
 
 $pageTitle      = $title          ?? 'Admin';
-$categoryTree   = $categoryTree   ?? [];
 $activeCategory = $activeCategory ?? '';
 
-// Se não veio explícito, busca da sessão atual
 $currentUser = $currentUser ?? Auth::currentUser();
 
 $userInitials = $currentUser?->initials() ?? '··';
@@ -29,57 +27,19 @@ $isAdmin      = $currentUser?->isAdmin() ?? false;
 $flashMessage = $flashMessage ?? null;
 $hideSidebar  = $hideSidebar  ?? false;
 
-// Recursividade pra renderizar a árvore
-$renderTree = function (array $items, int $depth = 0) use (&$renderTree, $activeCategory): string {
-    if ($items === []) {
-        return '';
+// Carrega árvore real de categorias para a sidebar
+$categoryFlat = [];
+if (!$hideSidebar) {
+    try {
+        $categoryFlat = Category::listFlat();
+    } catch (\Throwable) {
+        $categoryFlat = [];
     }
-    $cls = $depth === 0 ? 'af-tree' : 'af-tree__children';
-    $html = "<ul class=\"{$cls}\">";
-    foreach ($items as $item) {
-        $isActive    = ($item['slug'] ?? '') === $activeCategory;
-        $hasChildren = !empty($item['children']);
-        $itemClass = 'af-tree__item';
-        if ($depth > 0) {
-            $itemClass .= ' af-tree__item--child';
-        }
-        if ($isActive) {
-            $itemClass .= ' af-tree__item--active';
-        }
-        $caretIcon = $hasChildren
-            ? ($item['expanded'] ?? false ? 'chevron-down' : 'chevron-right')
-            : null;
-        $folderIcon = $hasChildren && ($item['expanded'] ?? false)
-            ? 'folder-open'
-            : 'folder';
-
-        $html .= '<li>';
-        $html .= '<a href="#" class="' . $itemClass . '">';
-        if ($caretIcon) {
-            $html .= Icon::render($caretIcon, 'af-icon--sm af-tree__caret');
-        } else {
-            $html .= '<span class="af-tree__caret"></span>';
-        }
-        $html .= Icon::render($folderIcon, 'af-icon--sm ' . ($isActive ? '' : 'af-gold'));
-        $html .= ' ' . e($item['name']);
-        if (isset($item['count'])) {
-            $html .= '<span class="af-tree__count">' . e((string) $item['count']) . '</span>';
-        }
-        $html .= '</a>';
-
-        if ($hasChildren && ($item['expanded'] ?? false)) {
-            $html .= $renderTree($item['children'], $depth + 1);
-        }
-        $html .= '</li>';
-    }
-    $html .= '</ul>';
-    return $html;
-};
+}
 
 ob_start();
 ?>
 <div class="af-admin-shell">
-    <!-- Header -->
     <header class="af-admin-header" role="banner">
         <a href="/admin/dashboard" class="af-admin-header__brand">
             <?php require dirname(__DIR__) . '/components/logo-mini.php'; ?>
@@ -108,16 +68,42 @@ ob_start();
 
     <div class="af-admin-body">
         <?php if (!$hideSidebar): ?>
-            <!-- Sidebar -->
             <nav class="af-admin-sidebar" aria-label="Navegação">
                 <div class="af-sidebar__heading"><?= e(mb_strtoupper(t('admin.dashboard.archives_heading'))) ?></div>
                 <div class="af-sidebar__divider-soft">━━━━━━━━━━━━</div>
-                <?= $renderTree($categoryTree) ?>
-                <?php if ($categoryTree !== []): ?>
-                    <div class="af-sidebar__divider-soft" style="margin-top:14px">━━━━━━━━━━━━</div>
+
+                <?php if ($categoryFlat === []): ?>
+                    <div class="af-fs-10 af-faint" style="padding:8px 4px;line-height:1.6">
+                        <?= e(t('admin.categories.empty')) ?>
+                        <?php if ($isAdmin): ?>
+                            <br><a href="/admin/categories/new" class="af-phosphor" style="text-decoration:underline">criar primeira</a>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <ul class="af-tree">
+                        <?php foreach ($categoryFlat as $node): ?>
+                            <?php
+                                /** @var Category $cat */
+                                $cat = $node['category'];
+                                $depth = $node['depth'];
+                                $hasChildren = $node['has_children'];
+                                $isActive = $cat->slug === $activeCategory;
+                                $itemClass = 'af-tree__item';
+                                if ($depth > 0)  $itemClass .= ' af-tree__item--child';
+                                if ($isActive)   $itemClass .= ' af-tree__item--active';
+                                $folderIcon = $hasChildren ? 'folder' : 'file';
+                            ?>
+                            <li>
+                                <a href="/admin/dashboard?category=<?= e($cat->slug) ?>" class="<?= e($itemClass) ?>"
+                                   style="padding-left:<?= e((string) (2 + $depth * 14)) ?>px">
+                                    <?= Icon::render($folderIcon, 'af-icon--sm ' . ($isActive ? '' : 'af-gold')) ?>
+                                    <?= e($cat->name) ?>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
                 <?php endif; ?>
 
-                <!-- Bottom nav: profile, users (admin), settings, logout -->
                 <div style="margin-top:24px;display:flex;flex-direction:column;gap:2px">
                     <a href="/admin/profile" class="af-tree__item">
                         <span class="af-tree__caret"></span>
@@ -129,6 +115,11 @@ ob_start();
                             <span class="af-tree__caret"></span>
                             <?= icon('user', 'af-icon--sm af-gold') ?>
                             <?= e(t('admin.sidebar.users')) ?>
+                        </a>
+                        <a href="/admin/categories" class="af-tree__item">
+                            <span class="af-tree__caret"></span>
+                            <?= icon('folder', 'af-icon--sm af-gold') ?>
+                            <?= e(t('admin.sidebar.categories')) ?>
                         </a>
                     <?php endif; ?>
                     <a href="/admin/settings" class="af-tree__item">
@@ -149,12 +140,11 @@ ob_start();
             </nav>
         <?php endif; ?>
 
-        <!-- Content -->
         <main class="af-admin-content" role="main">
             <?php if ($flashMessage): ?>
                 <div class="af-panel af-mb-4" style="border-color:var(--af-phosphor);background:var(--af-phosphor-glow)">
                     <div class="af-fs-12 af-phosphor af-track-1">
-                        ✓ <?= $flashMessage /* CONTÉM HTML — caller é responsável por escapar partes user-supplied */ ?>
+                        ✓ <?= $flashMessage /* contém HTML — caller responsável por escapar parts user-supplied */ ?>
                     </div>
                 </div>
             <?php endif; ?>

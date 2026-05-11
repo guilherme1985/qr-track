@@ -142,10 +142,11 @@ return [
         ],
 
         'sidebar' => [
-            'logout'   => 'Encerrar sessão',
-            'settings' => 'Configurações',
-            'profile'  => 'Meu dossiê',
-            'users'    => 'Curadores',
+            'logout'     => 'Encerrar sessão',
+            'settings'   => 'Configurações',
+            'profile'    => 'Meu dossiê',
+            'users'      => 'Curadores',
+            'categories' => 'Categorias',
         ],
 
         'user' => [
@@ -165,6 +166,58 @@ return [
             'change_password'  => 'Alterar senha',
             'no_email'         => 'sem e-mail',
             'no_login_yet'     => 'nenhum acesso registrado',
+        ],
+
+        'categories' => [
+            'page_title'         => 'Categorias',
+            'kicker'             => '━━ ESTRUTURA DE CATEGORIAS ━━',
+            'help'               => 'Árvore compartilhada de categorias. Profundidade máxima: 3 níveis (raiz → sub → sub-sub).',
+            'btn_new'            => '+ Nova categoria',
+            'btn_new_child'      => '+ Subcategoria',
+            'empty'              => 'Nenhuma categoria cadastrada ainda.',
+            'col_name'           => 'Nome',
+            'col_slug'           => 'Slug',
+            'col_depth'          => 'Nível',
+            'col_children'       => 'Subcategorias',
+            'col_archives'       => 'Arquivos',
+            'col_actions'        => 'Ações',
+            'action_edit'        => 'Editar',
+            'action_delete'      => 'Excluir',
+            'action_add_child'   => 'Adicionar sub',
+
+            'new_page_title'     => 'Nova categoria',
+            'new_kicker'         => '━━ NOVA CATEGORIA ━━',
+            'edit_page_title'    => 'Editar categoria',
+            'edit_kicker'        => '━━ ATUALIZAR CATEGORIA ━━',
+
+            'form_name'          => 'Nome',
+            'form_name_help'     => 'Como aparece na sidebar e nas listagens.',
+            'form_slug'          => 'Slug',
+            'form_slug_help'     => 'URL-safe (auto-gerado a partir do nome se vazio). Não use espaços ou acentos.',
+            'form_parent'        => 'Pertence a',
+            'form_parent_none'   => '— raiz (nível 0) —',
+            'form_parent_help'   => 'Defina a categoria pai. Só categorias com nível < 3 aparecem aqui.',
+            'form_icon'          => 'Ícone (opcional)',
+            'form_icon_help'     => 'Nome do ícone Tabler (ex: folder, leaf, photo).',
+            'form_color'         => 'Cor (opcional)',
+            'form_color_help'    => 'Código hex (#RRGGBB) ou nome de variável CSS.',
+            'form_sort_order'    => 'Ordem',
+            'form_sort_order_help' => 'Menor número aparece primeiro. Empata por nome.',
+
+            'depth_root'         => 'Raiz',
+            'depth_level'        => 'Nível :n',
+
+            'delete_page_title'  => 'Excluir categoria',
+            'delete_kicker'      => '━━ EXCLUSÃO DE CATEGORIA ━━',
+            'delete_title'       => 'Confirmar exclusão',
+            'delete_body'        => 'Remover permanentemente a categoria <strong>:name</strong>?',
+            'delete_blocked_children' => 'Esta categoria possui :n subcategoria(s). Exclua-as primeiro.',
+            'delete_blocked_qrs'  => 'Esta categoria possui :n arquivo(s) atrelado(s). Mova-os primeiro.',
+            'delete_btn'         => 'Excluir',
+
+            'flash_created'      => 'Categoria <strong>:name</strong> criada.',
+            'flash_updated'      => 'Categoria <strong>:name</strong> atualizada.',
+            'flash_deleted'      => 'Categoria <strong>:name</strong> excluída.',
         ],
 
         'users' => [
@@ -335,6 +388,16 @@ return [
             'invalid_email'          => 'E-mail inválido.',
             'invalid_username'       => 'Identificação inválida (use letras, números, ponto, hífen, underline).',
             'delete_confirmation_mismatch' => 'A identificação digitada não confere. Exclusão cancelada.',
+        ],
+
+        'categories' => [
+            'name_required'      => 'Nome é obrigatório.',
+            'invalid_slug'       => 'Slug inválido (use letras, números e hífens).',
+            'parent_not_found'   => 'Categoria pai não encontrada.',
+            'parent_at_max_depth'=> 'Categoria pai já está no nível máximo (3). Não é possível adicionar filhas.',
+            'has_children'       => 'Categoria com subcategorias não pode ser excluída. Exclua-as primeiro.',
+            'has_archives'       => 'Categoria com arquivos atrelados não pode ser excluída.',
+            'not_found'          => 'Categoria não encontrada.',
         ],
     ],
 
