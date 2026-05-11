@@ -42,7 +42,11 @@ $categoryTree = [
     ],
     ['name' => 'Wifi', 'slug' => 'wifi', 'count' => 3],
 ];
-$activeCategory = 'indica';
+// Lê a categoria ativa da query string (ex: /admin/dashboard?category=indica).
+// Sanitiza pra evitar XSS no atributo HTML do <a> e na comparação na sidebar.
+$activeCategory = isset($_GET['category']) && is_string($_GET['category'])
+    ? preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['category']))
+    : '';
 // $currentUser vem do middleware/index.php. $userInitials e role são calculados no layout.
 
 // Mock: stats
