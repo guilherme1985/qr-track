@@ -40,6 +40,7 @@ use ArkhamFiles\Auth\PasswordGenerator;
 use ArkhamFiles\Auth\TwoFactor;
 use ArkhamFiles\Category;
 use ArkhamFiles\CategoryAttributes;
+use ArkhamFiles\QrCode;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -75,14 +76,87 @@ $router->get('/', function () use ($rootDir) {
 });
 
 // =====================================================================
-// Public scan placeholder (público)
+// Public scan endpoint  GET /p/{public_id}
+//
+// Fluxo:
+//   1. Valida formato do public_id (anti-noise: bots, fuzzing)
+//   2. Lookup; se não existe → tela "Paciente não localizado"
+//   3. Registra scan (com flag was_expired)
+//   4. Decide o que mostrar baseado em status:
+//        - deleted/disabled → tela "Paciente não localizado" (não vazar
+//                              existência de QRs removidos)
+//        - expired          → tela "Caso arquivado"
+//        - válido           → viewer placeholder (PR 07/08/09 substituem
+//                              por viewers específicos por tipo)
 // =====================================================================
-$router->get('/p/(.+)', function (string $publicId) use ($rootDir) {
-    http_response_code(404);
-    $errorTitle    = t('errors.wip.title');
-    $errorSubtitle = t('errors.wip.subtitle');
-    $errorCode     = 'WIP';
-    require $rootDir . '/templates/error.php';
+$router->get('/p/([A-Za-z0-9-]+)', function (string $publicId) use ($rootDir) {
+    // Normaliza pra lowercase (case-insensitive matching nos QR labels)
+    $publicId = strtolower($publicId);
+
+    // Formato esperado: XXXX-XX (4 hex + 2 hex). Validação leve aqui
+    // pra evitar DB hits em URLs claramente malformadas.
+    if (!preg_match('/^[a-f0-9]{4}-[a-f0-9]{2}$/', $publicId)) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = t('errors.not_found.subtitle');
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    $qr = QrCode::findByPublicId($publicId);
+
+    // Não existe → 404 temático
+    if ($qr === null) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = t('errors.not_found.subtitle');
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    // Registra o scan SEMPRE — mesmo de QRs expirados/disabled.
+    // Útil pra auditoria forense e analytics de QRs impressos antigos.
+    $qr->recordScan(
+        ip:        Http::clientIp(),
+        userAgent: Http::userAgent(),
+        referer:   $_SERVER['HTTP_REFERER'] ?? null,
+    );
+
+    // Soft-deleted ou disabled: tratar como "não existe" pra não
+    // vazar informação ("ah, esse QR existiu mas foi pausado")
+    if ($qr->isDeleted || $qr->isDisabled) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = t('errors.not_found.subtitle');
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    // Expirado: tela temática "Caso arquivado"
+    if ($qr->isExpired()) {
+        http_response_code(410); // Gone — semanticamente correto pra expirado
+        $errorTitle    = t('errors.expired.title');
+        $errorSubtitle = t('errors.expired.subtitle');
+        $errorCode     = '410';
+        // O template error genérico pega kicker/title/subtitle/body
+        // automaticamente baseado em context — vamos usar a versão expired.
+        $errorKicker      = t('errors.expired.kicker');
+        $errorBody        = t('errors.expired.body');
+        $errorArchivedOn  = $qr->expiresAt ? substr($qr->expiresAt, 0, 10) : '';
+        $errorRetention   = t('errors.expired.retention_note');
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    // QR válido — renderiza viewer placeholder
+    // (PRs 07/08/09 vão substituir isso por viewer específico do tipo)
+    $scanCount = (int) \ArkhamFiles\Database::pdo()
+        ->query('SELECT COUNT(*) FROM scans WHERE qr_id = ' . (int) $qr->id)
+        ->fetchColumn();
+    require $rootDir . '/templates/public/viewer-placeholder.php';
 });
 
 // =====================================================================
