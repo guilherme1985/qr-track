@@ -43,6 +43,7 @@ use ArkhamFiles\CategoryAttributes;
 use ArkhamFiles\QrCode;
 use ArkhamFiles\Note;
 use ArkhamFiles\Markdown;
+use ArkhamFiles\Strain;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -166,8 +167,23 @@ $router->get('/p/([A-Za-z0-9-]+)', function (string $publicId) use ($rootDir) {
             require $rootDir . '/templates/public/note-viewer.php';
             break;
 
-        // Outros tipos (strain, image, etc.) caem aqui — PRs 08+ vão
-        // adicionar seus viewers específicos.
+        case 'strain':
+            $strain = Strain::findByQrId($qr->id);
+            if ($strain === null) {
+                // Inconsistência: qrcode marcado como strain mas sem metadata
+                http_response_code(500);
+                $errorTitle    = t('errors.not_found.title');
+                $errorSubtitle = 'STRAIN METADATA MISSING';
+                $errorCode     = '500';
+                require $rootDir . '/templates/error.php';
+                return;
+            }
+            $category = $qr->categoryId ? Category::findById($qr->categoryId) : null;
+            require $rootDir . '/templates/public/strain-viewer.php';
+            break;
+
+        // Outros tipos (image, etc.) caem aqui — PR 09 vai adicionar
+        // seus viewers específicos.
         default:
             require $rootDir . '/templates/public/viewer-placeholder.php';
     }
@@ -1453,6 +1469,391 @@ $router->post('/admin/notes/(\d+)/delete-hard', function (string $id) use ($root
         Http::clientIp(), Http::userAgent());
     Session::set('flash', t('admin.notes.flash_hard_deleted'));
     header('Location: /admin/notes', true, 302);
+});
+
+// =====================================================================
+// /admin/strains  — CRUD de dossiês botânicos
+//
+// Mesma regra de permissão das notas:
+//   - Listar: qualquer usuário logado (curator vê só os próprios)
+//   - Criar: qualquer usuário logado
+//   - Editar/arquivar: autor OU admin
+//   - Restaurar/hard-delete: admin only
+// =====================================================================
+
+// Helper de validação de input do form
+$validateStrainInput = function (array $post): array {
+    $errors = [];
+
+    $title = trim((string) ($post['title'] ?? ''));
+    if ($title === '') {
+        $errors[] = 'Identificação do dossiê é obrigatória.';
+    } elseif (mb_strlen($title) > 200) {
+        $errors[] = 'Identificação excede 200 caracteres.';
+    }
+
+    $strainData = [
+        'strain_name'    => trim((string) ($post['strain_name'] ?? '')),
+        'source'         => (string) ($post['source']   ?? 'semente'),
+        'genetics'       => (string) ($post['genetics'] ?? 'hibrida'),
+        'seed_type'      => (string) ($post['seed_type'] ?? ''),
+        'planting_date'  => trim((string) ($post['planting_date']  ?? '')) ?: null,
+        'flowering_date' => trim((string) ($post['flowering_date'] ?? '')) ?: null,
+        'harvest_date'   => trim((string) ($post['harvest_date']   ?? '')) ?: null,
+    ];
+
+    $catRaw = $post['category_id'] ?? '';
+    $categoryId = ($catRaw === '' || $catRaw === '0') ? null : (int) $catRaw;
+    if ($categoryId !== null && Category::findById($categoryId) === null) {
+        $errors[] = 'Categoria selecionada não existe.';
+        $categoryId = null;
+    }
+
+    // Expiração (mesma lógica do PR 07)
+    $expRadio = (string) ($post['expires_radio'] ?? 'none');
+    $expiresAt = null;
+    if ($expRadio === '30')       $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+30 days'));
+    elseif ($expRadio === '90')   $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+90 days'));
+    elseif ($expRadio === '365')  $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+365 days'));
+    elseif ($expRadio === 'custom') {
+        $cd = trim((string) ($post['expires_custom'] ?? ''));
+        if ($cd !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $cd)) {
+            $expiresAt = $cd . ' 23:59:59';
+        } else {
+            $errors[] = 'Data de expiração customizada inválida.';
+        }
+    }
+
+    return [$errors, $title, $strainData, $categoryId, $expiresAt];
+};
+
+// GET /admin/strains — listagem
+$router->get('/admin/strains', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $filters = [
+        'genetics' => $_GET['genetics'] ?? '',
+        'phase'    => $_GET['phase']    ?? '',
+        'mine'     => !empty($_GET['mine']),
+        'search'   => trim((string) ($_GET['q'] ?? '')),
+    ];
+
+    $queryFilters = ['type' => 'strain'];
+    if (!$user->isAdmin()) {
+        $queryFilters['created_by'] = $user->id;
+    } elseif ($filters['mine']) {
+        $queryFilters['created_by'] = $user->id;
+    }
+    if ($filters['search'] !== '') {
+        $queryFilters['search'] = $filters['search'];
+    }
+
+    $all = QrCode::listWithFilters($queryFilters);
+
+    // Filtros pós-query (genetics e phase precisam do strain_metadata)
+    $strains = [];
+    foreach ($all as $qr) {
+        $sm = Strain::findByQrId($qr->id);
+        if (!$sm) continue;
+        if ($filters['genetics'] !== '' && $sm->genetics !== $filters['genetics']) continue;
+        if ($filters['phase'] !== '' && $sm->lifecyclePhase() !== $filters['phase']) continue;
+        $strains[] = $qr;
+    }
+
+    $totalCount = count($strains);
+    $categories = Category::listAll();
+    $flashMessage = Session::get('flash');
+    Session::unset('flash');
+    require $rootDir . '/templates/admin/qrcodes/strains/index.php';
+});
+
+// GET /admin/strains/new — form
+$router->get('/admin/strains/new', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $isEdit = false;
+    $qr = null;
+    $strain = null;
+    $categories = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/strains/form.php';
+});
+
+// POST /admin/strains/new — submete criação
+$router->post('/admin/strains/new', function () use ($rootDir, $verifyCsrf, $validateStrainInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    [$errors, $title, $strainData, $categoryId, $expiresAt] = $validateStrainInput($_POST);
+
+    if ($errors === []) {
+        try {
+            $result = Strain::create(
+                title:       $title,
+                strainData:  $strainData,
+                categoryId:  $categoryId,
+                createdBy:   $user->id,
+                expiresAt:   $expiresAt,
+            );
+            Audit::log('qrcode_created', $user->id, 'qrcode', $result['id'],
+                ['type' => 'strain', 'public_id' => $result['public_id'],
+                 'title' => $title, 'strain_name' => $strainData['strain_name']],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.strains.flash_created', [
+                'title'      => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+                'dossier_id' => htmlspecialchars($result['public_id'], ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/strains', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    // re-render
+    $isEdit = false;
+    $qr = null;
+    $strain = null;
+    $oldTitle      = $title;
+    $oldCategoryId = $categoryId;
+    $oldExpiresAt  = $expiresAt;
+    $oldStrainName = $strainData['strain_name'];
+    $oldSource     = $strainData['source'];
+    $oldGenetics   = $strainData['genetics'];
+    $oldSeedType   = $strainData['seed_type'];
+    $oldPlanting   = $strainData['planting_date'];
+    $oldFlowering  = $strainData['flowering_date'];
+    $oldHarvest    = $strainData['harvest_date'];
+    $categories    = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/strains/form.php';
+});
+
+// GET /admin/strains/{id}/edit — form
+$router->get('/admin/strains/(\d+)/edit', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain' || $qr->isDeleted) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = 'STRAIN NOT FOUND';
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        $errorTitle    = 'Acesso negado';
+        $errorSubtitle = 'PERMISSION DENIED';
+        $errorCode     = '403';
+        $errorBody     = t('admin.strains.permission_denied');
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+    $isEdit = true;
+    $strain = Strain::findByQrId($qr->id);
+    $categories = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/strains/form.php';
+});
+
+// POST /admin/strains/{id}/edit
+$router->post('/admin/strains/(\d+)/edit', function (string $id) use ($rootDir, $verifyCsrf, $validateStrainInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    [$errors, $title, $strainData, $categoryId, $expiresAt] = $validateStrainInput($_POST);
+
+    if ($errors === []) {
+        try {
+            Strain::update(
+                qrId:        $qr->id,
+                title:       $title,
+                strainData:  $strainData,
+                categoryId:  $categoryId,
+                expiresAt:   $expiresAt,
+            );
+            Audit::log('qrcode_updated', $user->id, 'qrcode', $qr->id,
+                ['type' => 'strain', 'title' => $title],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.strains.flash_updated', [
+                'title' => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/strains', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    $isEdit = true;
+    $strain = Strain::findByQrId($qr->id);
+    $oldTitle      = $title;
+    $oldCategoryId = $categoryId;
+    $oldExpiresAt  = $expiresAt;
+    $oldStrainName = $strainData['strain_name'];
+    $oldSource     = $strainData['source'];
+    $oldGenetics   = $strainData['genetics'];
+    $oldSeedType   = $strainData['seed_type'];
+    $oldPlanting   = $strainData['planting_date'];
+    $oldFlowering  = $strainData['flowering_date'];
+    $oldHarvest    = $strainData['harvest_date'];
+    $categories    = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/strains/form.php';
+});
+
+// GET /admin/strains/{id}/delete — confirmação soft archive
+$router->get('/admin/strains/(\d+)/delete', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+    $strain = Strain::findByQrId($qr->id);
+    require $rootDir . '/templates/admin/qrcodes/strains/delete.php';
+});
+
+// POST /admin/strains/{id}/delete — soft delete
+$router->post('/admin/strains/(\d+)/delete', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    QrCode::softDelete($qr->id);
+    Audit::log('qrcode_archived', $user->id, 'qrcode', $qr->id,
+        ['type' => 'strain', 'title' => $qr->title, 'public_id' => $qr->publicId],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.strains.flash_archived', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/strains', true, 302);
+});
+
+// POST /admin/strains/{id}/restore — admin only
+$router->post('/admin/strains/(\d+)/restore', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain') {
+        http_response_code(404);
+        return;
+    }
+    QrCode::restore($qr->id);
+    Audit::log('qrcode_restored', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'strain', 'title' => $qr->title],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.strains.flash_restored', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/strains', true, 302);
+});
+
+// GET /admin/strains/{id}/delete-hard — confirmação hard delete
+$router->get('/admin/strains/(\d+)/delete-hard', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        Session::set('flash', 'Apenas dossiês arquivados podem ser excluídos permanentemente.');
+        header('Location: /admin/strains/' . $qr->id . '/edit', true, 302);
+        return;
+    }
+    $strain = Strain::findByQrId($qr->id);
+    $scanCount = $qr->scanCount();
+    require $rootDir . '/templates/admin/qrcodes/strains/delete-hard.php';
+});
+
+// POST /admin/strains/{id}/delete-hard — executa hard delete
+$router->post('/admin/strains/(\d+)/delete-hard', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'strain') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        http_response_code(400);
+        return;
+    }
+
+    $confirmTitle = trim((string) ($_POST['confirm_title'] ?? ''));
+    if ($confirmTitle !== $qr->title) {
+        $errors = [t('admin.strains.hard_delete_mismatch')];
+        $strain = Strain::findByQrId($qr->id);
+        $scanCount = $qr->scanCount();
+        require $rootDir . '/templates/admin/qrcodes/strains/delete-hard.php';
+        return;
+    }
+
+    $originalTitle = $qr->title;
+    $originalPublicId = $qr->publicId;
+    $scanCount = $qr->scanCount();
+
+    QrCode::hardDelete($qr->id);
+    Audit::log('qrcode_hard_deleted', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'strain', 'title' => $originalTitle,
+         'public_id' => $originalPublicId, 'scans_deleted' => $scanCount],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.strains.flash_hard_deleted'));
+    header('Location: /admin/strains', true, 302);
 });
 
 // =====================================================================

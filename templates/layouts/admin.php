@@ -115,6 +115,11 @@ ob_start();
                         <?= icon('notes', 'af-icon--sm af-phosphor') ?>
                         <?= e(t('admin.sidebar.notes')) ?>
                     </a>
+                    <a href="/admin/strains" class="af-tree__item">
+                        <span class="af-tree__caret"></span>
+                        <?= icon('seedling', 'af-icon--sm af-phosphor') ?>
+                        <?= e(t('admin.sidebar.strains')) ?>
+                    </a>
                     <?php if ($isAdmin): ?>
                         <a href="/admin/users" class="af-tree__item">
                             <span class="af-tree__caret"></span>
