@@ -41,6 +41,8 @@ use ArkhamFiles\Auth\TwoFactor;
 use ArkhamFiles\Category;
 use ArkhamFiles\CategoryAttributes;
 use ArkhamFiles\QrCode;
+use ArkhamFiles\Note;
+use ArkhamFiles\Markdown;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -151,12 +153,24 @@ $router->get('/p/([A-Za-z0-9-]+)', function (string $publicId) use ($rootDir) {
         return;
     }
 
-    // QR válido — renderiza viewer placeholder
-    // (PRs 07/08/09 vão substituir isso por viewer específico do tipo)
+    // QR válido — renderiza viewer específico do tipo
     $scanCount = (int) \ArkhamFiles\Database::pdo()
         ->query('SELECT COUNT(*) FROM scans WHERE qr_id = ' . (int) $qr->id)
         ->fetchColumn();
-    require $rootDir . '/templates/public/viewer-placeholder.php';
+
+    switch ($qr->type) {
+        case 'note':
+            $rawMarkdown = Note::getMarkdown($qr->id);
+            $renderedHtml = Markdown::render($rawMarkdown);
+            $category = $qr->categoryId ? Category::findById($qr->categoryId) : null;
+            require $rootDir . '/templates/public/note-viewer.php';
+            break;
+
+        // Outros tipos (strain, image, etc.) caem aqui — PRs 08+ vão
+        // adicionar seus viewers específicos.
+        default:
+            require $rootDir . '/templates/public/viewer-placeholder.php';
+    }
 });
 
 // =====================================================================
@@ -1063,6 +1077,382 @@ $router->post('/admin/categories/(\d+)/delete', function (string $id) use ($root
         $qrCount    = Category::qrCount($category->id);
         require $rootDir . '/templates/admin/categories/delete.php';
     }
+});
+
+// =====================================================================
+// /admin/notes  — CRUD de notas (admin + curator)
+//
+// Permissões:
+//   - Listagem: qualquer usuário logado (curator vê só as próprias)
+//   - Criar: qualquer usuário logado
+//   - Editar/arquivar: autor da nota OU admin
+//   - Restaurar/hard-delete: admin only
+// =====================================================================
+
+// Helper de validação de input do form (compartilhado por new e edit)
+$validateNoteInput = function (array $post) {
+    $errors = [];
+
+    $title = trim((string) ($post['title'] ?? ''));
+    if ($title === '') {
+        $errors[] = 'Título é obrigatório.';
+    } elseif (mb_strlen($title) > 200) {
+        $errors[] = 'Título excede o limite de 200 caracteres.';
+    }
+
+    $markdown = (string) ($post['markdown'] ?? '');
+    if (strlen($markdown) > Markdown::MAX_LENGTH_BYTES) {
+        $kb = number_format(Markdown::MAX_LENGTH_BYTES / 1024, 0);
+        $errors[] = "Conteúdo Markdown excede o limite de {$kb} KB.";
+    }
+
+    $catRaw = $post['category_id'] ?? '';
+    $categoryId = ($catRaw === '' || $catRaw === '0') ? null : (int) $catRaw;
+    if ($categoryId !== null && Category::findById($categoryId) === null) {
+        $errors[] = 'Categoria selecionada não existe.';
+        $categoryId = null;
+    }
+
+    // Expiração
+    $expRadio = (string) ($post['expires_radio'] ?? 'none');
+    $expiresAt = null;
+    if ($expRadio === '30') {
+        $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+30 days'));
+    } elseif ($expRadio === '90') {
+        $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+90 days'));
+    } elseif ($expRadio === '365') {
+        $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+365 days'));
+    } elseif ($expRadio === 'custom') {
+        $customDate = trim((string) ($post['expires_custom'] ?? ''));
+        if ($customDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $customDate)) {
+            $expiresAt = $customDate . ' 23:59:59';
+        } else {
+            $errors[] = 'Data de expiração customizada inválida.';
+        }
+    }
+
+    return [$errors, $title, $markdown, $categoryId, $expiresAt];
+};
+
+// GET /admin/notes — listagem com filtros
+$router->get('/admin/notes', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $filters = [
+        'status'      => $_GET['status']      ?? 'all-active',
+        'category_id' => isset($_GET['category_id']) && $_GET['category_id'] !== ''
+                          ? (int) $_GET['category_id'] : null,
+        'mine'        => !empty($_GET['mine']),
+        'search'      => trim((string) ($_GET['q'] ?? '')),
+    ];
+
+    // Constrói query — curador SEMPRE filtra por created_by
+    $queryFilters = ['type' => 'note', 'status' => $filters['status']];
+    if ($filters['category_id'] !== null) {
+        $queryFilters['category_id'] = $filters['category_id'];
+    }
+    if (!$user->isAdmin()) {
+        // curador: vê só as próprias, sempre
+        $queryFilters['created_by'] = $user->id;
+    } elseif ($filters['mine']) {
+        // admin com "apenas minhas" marcado
+        $queryFilters['created_by'] = $user->id;
+    }
+    if ($filters['search'] !== '') {
+        $queryFilters['search'] = $filters['search'];
+    }
+
+    $notes = QrCode::listWithFilters($queryFilters);
+    $totalCount = count($notes);
+    $categories = Category::listAll();
+    $flashMessage = Session::get('flash');
+    Session::unset('flash');
+    require $rootDir . '/templates/admin/qrcodes/notes/index.php';
+});
+
+// GET /admin/notes/new — form de criação
+$router->get('/admin/notes/new', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $isEdit = false;
+    $qr = null;
+    $categories = Category::listFlat();
+    $categories = array_map(fn($n) => $n['category'], $categories);
+    require $rootDir . '/templates/admin/qrcodes/notes/form.php';
+});
+
+// POST /admin/notes/new — submete criação
+$router->post('/admin/notes/new', function () use ($rootDir, $verifyCsrf, $validateNoteInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    [$errors, $title, $markdown, $categoryId, $expiresAt] = $validateNoteInput($_POST);
+
+    if ($errors === []) {
+        try {
+            $result = Note::create(
+                title:           $title,
+                markdownContent: $markdown,
+                categoryId:      $categoryId,
+                createdBy:       $user->id,
+                expiresAt:       $expiresAt,
+            );
+            Audit::log('qrcode_created', $user->id, 'qrcode', $result['id'],
+                ['type' => 'note', 'public_id' => $result['public_id'], 'title' => $title],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.notes.flash_created', [
+                'title'      => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+                'dossier_id' => htmlspecialchars($result['public_id'], ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/notes', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    // re-render form com erros
+    $isEdit = false;
+    $qr = null;
+    $oldTitle      = $title;
+    $oldMarkdown   = $markdown;
+    $oldCategoryId = $categoryId;
+    $oldExpiresAt  = $expiresAt;
+    $categories = Category::listFlat();
+    $categories = array_map(fn($n) => $n['category'], $categories);
+    require $rootDir . '/templates/admin/qrcodes/notes/form.php';
+});
+
+// GET /admin/notes/{id}/edit — form de edição
+$router->get('/admin/notes/(\d+)/edit', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note' || $qr->isDeleted) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = 'NOTE NOT FOUND';
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        $errorTitle    = 'Acesso negado';
+        $errorSubtitle = 'PERMISSION DENIED';
+        $errorCode     = '403';
+        $errorBody     = t('admin.notes.permission_denied');
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    $isEdit = true;
+    $categories = Category::listFlat();
+    $categories = array_map(fn($n) => $n['category'], $categories);
+    require $rootDir . '/templates/admin/qrcodes/notes/form.php';
+});
+
+// POST /admin/notes/{id}/edit — submete edição
+$router->post('/admin/notes/(\d+)/edit', function (string $id) use ($rootDir, $verifyCsrf, $validateNoteInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    [$errors, $title, $markdown, $categoryId, $expiresAt] = $validateNoteInput($_POST);
+
+    if ($errors === []) {
+        try {
+            Note::update(
+                qrId:            $qr->id,
+                title:           $title,
+                markdownContent: $markdown,
+                categoryId:      $categoryId,
+                expiresAt:       $expiresAt,
+            );
+            Audit::log('qrcode_updated', $user->id, 'qrcode', $qr->id,
+                ['type' => 'note', 'title' => $title],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.notes.flash_updated', [
+                'title' => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/notes', true, 302);
+            return;
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    $isEdit = true;
+    $oldTitle      = $title;
+    $oldMarkdown   = $markdown;
+    $oldCategoryId = $categoryId;
+    $oldExpiresAt  = $expiresAt;
+    $categories = Category::listFlat();
+    $categories = array_map(fn($n) => $n['category'], $categories);
+    require $rootDir . '/templates/admin/qrcodes/notes/form.php';
+});
+
+// GET /admin/notes/{id}/delete — confirmação de arquivamento (soft)
+$router->get('/admin/notes/(\d+)/delete', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+    require $rootDir . '/templates/admin/qrcodes/notes/delete.php';
+});
+
+// POST /admin/notes/{id}/delete — executa arquivamento (soft-delete)
+$router->post('/admin/notes/(\d+)/delete', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    QrCode::softDelete($qr->id);
+    Audit::log('qrcode_archived', $user->id, 'qrcode', $qr->id,
+        ['type' => 'note', 'title' => $qr->title, 'public_id' => $qr->publicId],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.notes.flash_archived', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/notes', true, 302);
+});
+
+// POST /admin/notes/{id}/restore — restaura (admin only)
+$router->post('/admin/notes/(\d+)/restore', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note') {
+        http_response_code(404);
+        return;
+    }
+    QrCode::restore($qr->id);
+    Audit::log('qrcode_restored', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'note', 'title' => $qr->title],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.notes.flash_restored', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/notes?status=deleted', true, 302);
+});
+
+// GET /admin/notes/{id}/restore — fallback pra link na listagem (re-rota pro POST)
+$router->get('/admin/notes/(\d+)/restore', function (string $id) {
+    Auth::requireRole(User::ROLE_ADMIN);
+    // Sem CSRF em GET — pra preservar segurança, redireciona pra
+    // listagem e força o admin a usar o botão POST (a partir do
+    // sistema de flash messages com formulário inline depois).
+    Session::set('flash', 'Use o botão de ação na listagem para restaurar.');
+    header('Location: /admin/notes?status=deleted', true, 302);
+});
+
+// GET /admin/notes/{id}/delete-hard — confirmação de exclusão definitiva (admin only)
+$router->get('/admin/notes/(\d+)/delete-hard', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        // Só permite hard-delete de notas já arquivadas (defesa contra cliques acidentais)
+        Session::set('flash', 'Apenas notas arquivadas podem ser excluídas permanentemente.');
+        header('Location: /admin/notes/' . $qr->id . '/edit', true, 302);
+        return;
+    }
+    $scanCount = $qr->scanCount();
+    require $rootDir . '/templates/admin/qrcodes/notes/delete-hard.php';
+});
+
+// POST /admin/notes/{id}/delete-hard — executa hard-delete (admin only)
+$router->post('/admin/notes/(\d+)/delete-hard', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'note') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        http_response_code(400);
+        return;
+    }
+
+    $confirmTitle = trim((string) ($_POST['confirm_title'] ?? ''));
+    if ($confirmTitle !== $qr->title) {
+        $errors = [t('admin.notes.hard_delete_mismatch')];
+        $scanCount = $qr->scanCount();
+        require $rootDir . '/templates/admin/qrcodes/notes/delete-hard.php';
+        return;
+    }
+
+    $originalTitle = $qr->title;
+    $originalPublicId = $qr->publicId;
+    $scanCount = $qr->scanCount();
+
+    QrCode::hardDelete($qr->id);
+    Audit::log('qrcode_hard_deleted', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'note', 'title' => $originalTitle,
+         'public_id' => $originalPublicId, 'scans_deleted' => $scanCount],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.notes.flash_hard_deleted'));
+    header('Location: /admin/notes', true, 302);
 });
 
 // =====================================================================

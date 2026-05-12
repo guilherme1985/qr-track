@@ -229,6 +229,220 @@ final class QrCode
     }
 
     // ------------------------------------------------------------------
+    // CRUD (PR 07+)
+    //
+    // Os métodos abaixo são genéricos — funcionam pra qualquer tipo de QR.
+    // Endpoints específicos (note, strain, image) chamam estes + atualizam
+    // sua tabela de _metadata correspondente em transação.
+    // ------------------------------------------------------------------
+
+    /**
+     * Cria um QR base. Retorna o ID. O caller é responsável por inserir
+     * em note_metadata / strain_metadata / image_metadata na mesma
+     * transação se aplicável.
+     *
+     * @return array{id: int, public_id: string}
+     */
+    public static function create(
+        string $type,
+        string $title,
+        ?int $categoryId,
+        ?int $createdBy,
+        ?string $expiresAt = null,
+        ?string $payload = null,
+    ): array {
+        $title = trim($title);
+        if ($title === '') {
+            throw new \DomainException('Título obrigatório');
+        }
+
+        $publicId = self::generatePublicId();
+        $pdo = Database::pdo();
+        $stmt = $pdo->prepare('
+            INSERT INTO qrcodes (public_id, type, title, payload, category_id, expires_at, created_by)
+            VALUES (:p, :t, :ti, :pl, :c, :exp, :cb)
+        ');
+        $stmt->execute([
+            ':p'   => $publicId,
+            ':t'   => $type,
+            ':ti'  => $title,
+            ':pl'  => $payload,
+            ':c'   => $categoryId,
+            ':exp' => $expiresAt,
+            ':cb'  => $createdBy,
+        ]);
+        return [
+            'id'        => (int) $pdo->lastInsertId(),
+            'public_id' => $publicId,
+        ];
+    }
+
+    /**
+     * Atualiza os campos editáveis. Não muda type ou public_id.
+     */
+    public static function update(
+        int $id,
+        string $title,
+        ?int $categoryId,
+        ?string $expiresAt,
+        ?bool $isDisabled = null,
+    ): void {
+        $title = trim($title);
+        if ($title === '') {
+            throw new \DomainException('Título obrigatório');
+        }
+        $pdo = Database::pdo();
+        $sql = '
+            UPDATE qrcodes
+               SET title = :t, category_id = :c, expires_at = :exp,
+                   updated_at = CURRENT_TIMESTAMP';
+        $params = [
+            ':t'   => $title,
+            ':c'   => $categoryId,
+            ':exp' => $expiresAt,
+            ':id'  => $id,
+        ];
+        if ($isDisabled !== null) {
+            $sql .= ', is_disabled = :d';
+            $params[':d'] = $isDisabled ? 1 : 0;
+        }
+        $sql .= ' WHERE id = :id';
+        $pdo->prepare($sql)->execute($params);
+    }
+
+    /**
+     * Soft-delete (is_deleted = 1). Preserva o registro pra auditoria
+     * e permite restauração futura. Disponível pra qualquer curador
+     * (sobre suas próprias notas) e pra admin (sobre qualquer nota).
+     */
+    public static function softDelete(int $id): void
+    {
+        Database::pdo()->prepare('
+            UPDATE qrcodes
+               SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id
+        ')->execute([':id' => $id]);
+    }
+
+    /**
+     * Restaura um QR soft-deleted (admin only).
+     */
+    public static function restore(int $id): void
+    {
+        Database::pdo()->prepare('
+            UPDATE qrcodes
+               SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id
+        ')->execute([':id' => $id]);
+    }
+
+    /**
+     * Hard-delete (DELETE FROM). Admin only — destrutivo, sem volta.
+     * Cascade do schema apaga note_metadata/strain_metadata/image_metadata
+     * e scans (FK ON DELETE CASCADE em todas).
+     */
+    public static function hardDelete(int $id): void
+    {
+        Database::pdo()->prepare('DELETE FROM qrcodes WHERE id = :id')
+            ->execute([':id' => $id]);
+    }
+
+    /**
+     * Lista QRs com filtros. Usado pela tela de admin.
+     *
+     * @param array{
+     *   type?: string,
+     *   category_id?: int,
+     *   created_by?: int,
+     *   status?: 'active'|'expiring'|'expired'|'disabled'|'deleted'|'all',
+     *   search?: string,
+     *   limit?: int,
+     *   offset?: int
+     * } $filters
+     * @return self[]
+     */
+    public static function listWithFilters(array $filters = []): array
+    {
+        $where = [];
+        $params = [];
+
+        // Por padrão exclui deletados
+        $statusFilter = $filters['status'] ?? 'all-active';
+        if ($statusFilter === 'deleted') {
+            $where[] = 'is_deleted = 1';
+        } elseif ($statusFilter !== 'all') {
+            $where[] = 'is_deleted = 0';
+        }
+
+        if (isset($filters['type'])) {
+            $where[] = 'type = :type';
+            $params[':type'] = $filters['type'];
+        }
+        if (isset($filters['category_id'])) {
+            $where[] = 'category_id = :cat';
+            $params[':cat'] = $filters['category_id'];
+        }
+        if (isset($filters['created_by'])) {
+            $where[] = 'created_by = :cb';
+            $params[':cb'] = $filters['created_by'];
+        }
+        if (isset($filters['search']) && trim($filters['search']) !== '') {
+            $where[] = '(title LIKE :s OR public_id LIKE :s)';
+            $params[':s'] = '%' . trim($filters['search']) . '%';
+        }
+
+        // Status sub-filters baseados em expires_at
+        if ($statusFilter === 'active') {
+            $where[] = 'is_disabled = 0';
+            $where[] = '(expires_at IS NULL OR expires_at > :now)';
+            $params[':now'] = gmdate('Y-m-d H:i:s');
+        } elseif ($statusFilter === 'expired') {
+            $where[] = 'is_disabled = 0';
+            $where[] = 'expires_at IS NOT NULL AND expires_at <= :now';
+            $params[':now'] = gmdate('Y-m-d H:i:s');
+        } elseif ($statusFilter === 'disabled') {
+            $where[] = 'is_disabled = 1';
+        }
+
+        $sql = 'SELECT * FROM qrcodes';
+        if ($where !== []) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $sql .= ' ORDER BY created_at DESC';
+        $limit = $filters['limit'] ?? 50;
+        $offset = $filters['offset'] ?? 0;
+        $sql .= ' LIMIT ' . (int) $limit . ' OFFSET ' . (int) $offset;
+
+        $stmt = Database::pdo()->prepare($sql);
+        $stmt->execute($params);
+        return array_map(self::fromRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Conta scans recebidos por esse QR.
+     */
+    public function scanCount(): int
+    {
+        $stmt = Database::pdo()->prepare('SELECT COUNT(*) FROM scans WHERE qr_id = :id');
+        $stmt->execute([':id' => $this->id]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Verifica se o usuário tem permissão de editar/deletar (soft) esse QR.
+     * Regras:
+     *   - Admin pode tudo
+     *   - Curator só pode mexer nas próprias notas
+     */
+    public function canBeEditedBy(\ArkhamFiles\Auth\User $user): bool
+    {
+        if ($user->isAdmin()) {
+            return true;
+        }
+        return $this->createdBy === $user->id;
+    }
+
+    // ------------------------------------------------------------------
     // Hydration
     // ------------------------------------------------------------------
 
