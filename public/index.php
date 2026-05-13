@@ -44,6 +44,8 @@ use ArkhamFiles\QrCode;
 use ArkhamFiles\Note;
 use ArkhamFiles\Markdown;
 use ArkhamFiles\Strain;
+use ArkhamFiles\ImageQr;
+use ArkhamFiles\ImageUpload;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -182,8 +184,21 @@ $router->get('/p/([A-Za-z0-9-]+)', function (string $publicId) use ($rootDir) {
             require $rootDir . '/templates/public/strain-viewer.php';
             break;
 
-        // Outros tipos (image, etc.) caem aqui — PR 09 vai adicionar
-        // seus viewers específicos.
+        case 'image':
+            $img = ImageQr::findByQrId($qr->id);
+            if ($img === null) {
+                http_response_code(500);
+                $errorTitle    = t('errors.not_found.title');
+                $errorSubtitle = 'IMAGE METADATA MISSING';
+                $errorCode     = '500';
+                require $rootDir . '/templates/error.php';
+                return;
+            }
+            $category = $qr->categoryId ? Category::findById($qr->categoryId) : null;
+            require $rootDir . '/templates/public/image-viewer.php';
+            break;
+
+        // Outros tipos caem aqui — viewer placeholder genérico.
         default:
             require $rootDir . '/templates/public/viewer-placeholder.php';
     }
@@ -1854,6 +1869,375 @@ $router->post('/admin/strains/(\d+)/delete-hard', function (string $id) use ($ro
         Http::clientIp(), Http::userAgent());
     Session::set('flash', t('admin.strains.flash_hard_deleted'));
     header('Location: /admin/strains', true, 302);
+});
+
+// =====================================================================
+// /admin/images  — CRUD de imagens
+//
+// Mesma regra de permissão das notas e strains:
+//   - Listar: qualquer usuário logado (curator vê só as próprias)
+//   - Criar: qualquer usuário logado (upload multipart)
+//   - Editar/arquivar: autor OU admin
+//   - Restaurar/hard-delete: admin only
+// =====================================================================
+
+// Helper de validação dos metadados do form (sem o arquivo — esse é
+// validado em ImageUpload::process).
+$validateImageInput = function (array $post): array {
+    $errors = [];
+
+    $title = trim((string) ($post['title'] ?? ''));
+    if ($title === '') {
+        $errors[] = 'Título é obrigatório.';
+    } elseif (mb_strlen($title) > 200) {
+        $errors[] = 'Título excede 200 caracteres.';
+    }
+
+    $catRaw = $post['category_id'] ?? '';
+    $categoryId = ($catRaw === '' || $catRaw === '0') ? null : (int) $catRaw;
+    if ($categoryId !== null && Category::findById($categoryId) === null) {
+        $errors[] = 'Categoria selecionada não existe.';
+        $categoryId = null;
+    }
+
+    // Expiração
+    $expRadio = (string) ($post['expires_radio'] ?? 'none');
+    $expiresAt = null;
+    if ($expRadio === '30')       $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+30 days'));
+    elseif ($expRadio === '90')   $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+90 days'));
+    elseif ($expRadio === '365')  $expiresAt = gmdate('Y-m-d H:i:s', strtotime('+365 days'));
+    elseif ($expRadio === 'custom') {
+        $cd = trim((string) ($post['expires_custom'] ?? ''));
+        if ($cd !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $cd)) {
+            $expiresAt = $cd . ' 23:59:59';
+        } else {
+            $errors[] = 'Data de expiração customizada inválida.';
+        }
+    }
+
+    return [$errors, $title, $categoryId, $expiresAt];
+};
+
+// GET /admin/images — listagem
+$router->get('/admin/images', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $filters = [
+        'status' => $_GET['status'] ?? 'all-active',
+        'mine'   => !empty($_GET['mine']),
+        'search' => trim((string) ($_GET['q'] ?? '')),
+    ];
+
+    $queryFilters = ['type' => 'image', 'status' => $filters['status']];
+    if (!$user->isAdmin()) {
+        $queryFilters['created_by'] = $user->id;
+    } elseif ($filters['mine']) {
+        $queryFilters['created_by'] = $user->id;
+    }
+    if ($filters['search'] !== '') {
+        $queryFilters['search'] = $filters['search'];
+    }
+
+    $images = QrCode::listWithFilters($queryFilters);
+    $totalCount = count($images);
+    $categories = Category::listAll();
+    $flashMessage = Session::get('flash');
+    Session::unset('flash');
+    require $rootDir . '/templates/admin/qrcodes/images/index.php';
+});
+
+// GET /admin/images/new — form de criação
+$router->get('/admin/images/new', function () use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $categories = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/images/new.php';
+});
+
+// POST /admin/images/new — processa upload + criação
+$router->post('/admin/images/new', function () use ($rootDir, $verifyCsrf, $validateImageInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    [$errors, $title, $categoryId, $expiresAt] = $validateImageInput($_POST);
+
+    // Processa o upload se a validação dos metadados passou
+    $imageData = null;
+    if ($errors === []) {
+        try {
+            $imageData = ImageUpload::process(
+                file:        $_FILES['image_file'] ?? [],
+                uploadsDir:  $rootDir . '/uploads',
+            );
+        } catch (\DomainException $e) {
+            $errors[] = $e->getMessage();
+        } catch (\RuntimeException $e) {
+            $errors[] = 'Erro no servidor ao processar imagem: ' . $e->getMessage();
+        }
+    }
+
+    if ($errors === [] && $imageData !== null) {
+        try {
+            $result = ImageQr::create(
+                title:      $title,
+                imageData:  $imageData,
+                categoryId: $categoryId,
+                createdBy:  $user->id,
+                expiresAt:  $expiresAt,
+            );
+            Audit::log('qrcode_created', $user->id, 'qrcode', $result['id'],
+                ['type' => 'image', 'public_id' => $result['public_id'],
+                 'title' => $title, 'file_size' => $imageData['file_size'],
+                 'mime_type' => $imageData['mime_type']],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.images.flash_created', [
+                'title'      => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+                'dossier_id' => htmlspecialchars($result['public_id'], ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/images', true, 302);
+            return;
+        } catch (\Throwable $e) {
+            // Limpa o arquivo que foi salvo no disco se a transação falhou
+            ImageUpload::deleteFiles(
+                $rootDir . '/uploads',
+                $imageData['file_path'],
+                $imageData['thumbnail_path']
+            );
+            $errors[] = 'Erro ao registrar imagem: ' . $e->getMessage();
+        }
+    }
+
+    // re-render form com erros
+    $oldTitle      = $title;
+    $oldCategoryId = $categoryId;
+    $oldExpRadio   = (string) ($_POST['expires_radio'] ?? 'none');
+    $oldCustomDate = (string) ($_POST['expires_custom'] ?? '');
+    $categories    = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/images/new.php';
+});
+
+// GET /admin/images/{id}/edit — form de edição (metadados apenas)
+$router->get('/admin/images/(\d+)/edit', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image' || $qr->isDeleted) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = 'IMAGE NOT FOUND';
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        $errorTitle    = 'Acesso negado';
+        $errorSubtitle = 'PERMISSION DENIED';
+        $errorCode     = '403';
+        $errorBody     = t('admin.images.permission_denied');
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+    $img = ImageQr::findByQrId($qr->id);
+    $categories = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/images/edit.php';
+});
+
+// POST /admin/images/{id}/edit — atualiza metadados (não o arquivo)
+$router->post('/admin/images/(\d+)/edit', function (string $id) use ($rootDir, $verifyCsrf, $validateImageInput) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    [$errors, $title, $categoryId, $expiresAt] = $validateImageInput($_POST);
+
+    if ($errors === []) {
+        try {
+            ImageQr::updateMetadata(
+                qrId:       $qr->id,
+                title:      $title,
+                categoryId: $categoryId,
+                expiresAt:  $expiresAt,
+            );
+            Audit::log('qrcode_updated', $user->id, 'qrcode', $qr->id,
+                ['type' => 'image', 'title' => $title],
+                Http::clientIp(), Http::userAgent());
+            Session::set('flash', t('admin.images.flash_updated', [
+                'title' => htmlspecialchars($title, ENT_QUOTES, 'UTF-8'),
+            ]));
+            header('Location: /admin/images', true, 302);
+            return;
+        } catch (\Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    $img = ImageQr::findByQrId($qr->id);
+    $oldTitle      = $title;
+    $oldCategoryId = $categoryId;
+    $oldExpiresAt  = $expiresAt;
+    $categories    = array_map(fn($n) => $n['category'], Category::listFlat());
+    require $rootDir . '/templates/admin/qrcodes/images/edit.php';
+});
+
+// GET /admin/images/{id}/delete — confirmação soft archive
+$router->get('/admin/images/(\d+)/delete', function (string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+    $img = ImageQr::findByQrId($qr->id);
+    require $rootDir . '/templates/admin/qrcodes/images/delete.php';
+});
+
+// POST /admin/images/{id}/delete — soft delete
+$router->post('/admin/images/(\d+)/delete', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image' || $qr->isDeleted) {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->canBeEditedBy($user)) {
+        http_response_code(403);
+        return;
+    }
+
+    QrCode::softDelete($qr->id);
+    Audit::log('qrcode_archived', $user->id, 'qrcode', $qr->id,
+        ['type' => 'image', 'title' => $qr->title, 'public_id' => $qr->publicId],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.images.flash_archived', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/images', true, 302);
+});
+
+// POST /admin/images/{id}/restore — admin only
+$router->post('/admin/images/(\d+)/restore', function (string $id) use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image') {
+        http_response_code(404);
+        return;
+    }
+    QrCode::restore($qr->id);
+    Audit::log('qrcode_restored', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'image', 'title' => $qr->title],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.images.flash_restored', [
+        'title' => htmlspecialchars($qr->title, ENT_QUOTES, 'UTF-8'),
+    ]));
+    header('Location: /admin/images', true, 302);
+});
+
+// GET /admin/images/{id}/delete-hard — confirmação hard delete (admin only)
+$router->get('/admin/images/(\d+)/delete-hard', function (string $id) use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        Session::set('flash', 'Apenas imagens arquivadas podem ser excluídas permanentemente.');
+        header('Location: /admin/images/' . $qr->id . '/edit', true, 302);
+        return;
+    }
+    $img = ImageQr::findByQrId($qr->id);
+    $scanCount = $qr->scanCount();
+    require $rootDir . '/templates/admin/qrcodes/images/delete-hard.php';
+});
+
+// POST /admin/images/{id}/delete-hard — executa hard delete + apaga arquivos
+$router->post('/admin/images/(\d+)/delete-hard', function (string $id) use ($rootDir, $verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== 'image') {
+        http_response_code(404);
+        return;
+    }
+    if (!$qr->isDeleted) {
+        http_response_code(400);
+        return;
+    }
+
+    $confirmTitle = trim((string) ($_POST['confirm_title'] ?? ''));
+    if ($confirmTitle !== $qr->title) {
+        $errors = [t('admin.images.hard_delete_mismatch')];
+        $img = ImageQr::findByQrId($qr->id);
+        $scanCount = $qr->scanCount();
+        require $rootDir . '/templates/admin/qrcodes/images/delete-hard.php';
+        return;
+    }
+
+    $originalTitle = $qr->title;
+    $originalPublicId = $qr->publicId;
+    $scanCount = $qr->scanCount();
+    $imgRecord = ImageQr::findByQrId($qr->id);
+    $fileSize = $imgRecord?->fileSize ?? 0;
+
+    // Apaga DB + arquivos físicos
+    ImageQr::hardDeleteWithFiles($qr->id, $rootDir . '/uploads');
+
+    Audit::log('qrcode_hard_deleted', $admin->id, 'qrcode', $qr->id,
+        ['type' => 'image', 'title' => $originalTitle,
+         'public_id' => $originalPublicId, 'scans_deleted' => $scanCount,
+         'file_size' => $fileSize],
+        Http::clientIp(), Http::userAgent());
+    Session::set('flash', t('admin.images.flash_hard_deleted'));
+    header('Location: /admin/images', true, 302);
 });
 
 // =====================================================================

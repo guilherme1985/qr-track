@@ -151,6 +151,7 @@ return [
             'categories' => 'Categorias',
             'notes'      => 'Notas',
             'strains'    => 'Strains',
+            'images'     => 'Imagens',
         ],
 
         'user' => [
@@ -421,6 +422,99 @@ return [
             'permission_denied'   => 'Você não tem permissão para esta ação. Apenas o autor ou um administrador podem editar/arquivar este dossiê.',
         ],
 
+        'images' => [
+            'page_title'          => 'Imagens',
+            'kicker'              => '━━ GALERIA DE IMAGENS ━━',
+            'help'                => 'Imagens com QR público. JPEG, PNG ou WebP até 5 MB.',
+            'btn_new'             => '+ Nova imagem',
+            'empty'               => 'Nenhuma imagem cadastrada ainda.',
+            'empty_filtered'      => 'Nenhuma imagem encontrada com os filtros aplicados.',
+
+            'col_thumb'           => 'Preview',
+            'col_title'           => 'Título',
+            'col_dossier_id'      => 'Dossiê Nº',
+            'col_category'        => 'Categoria',
+            'col_dimensions'      => 'Dimensões',
+            'col_size'            => 'Tamanho',
+            'col_status'          => 'Status',
+            'col_scans'           => 'Acessos',
+            'col_actions'         => 'Ações',
+
+            'action_view'         => 'Ver público',
+            'action_edit'         => 'Editar',
+            'action_archive'      => 'Arquivar',
+            'action_restore'      => 'Restaurar',
+            'action_delete_hard'  => 'Excluir definitivamente',
+
+            'filter_status'       => 'Status',
+            'filter_status_all'   => 'Todos',
+            'filter_status_active'   => 'Ativas',
+            'filter_status_expired'  => 'Expiradas',
+            'filter_status_disabled' => 'Desabilitadas',
+            'filter_status_deleted'  => 'Arquivadas',
+            'filter_mine'         => 'Apenas as minhas',
+            'filter_search'       => 'Buscar por título ou Nº',
+            'filter_apply'        => 'Aplicar',
+            'filter_clear'        => 'Limpar',
+
+            'new_page_title'      => 'Nova imagem',
+            'new_kicker'          => '━━ NOVA IMAGEM ━━',
+            'edit_page_title'     => 'Editar imagem',
+            'edit_kicker'         => '━━ ATUALIZAR IMAGEM ━━',
+            'edit_note'           => 'Para substituir o arquivo, exclua esta imagem e crie uma nova.',
+
+            'form_title'          => 'Título',
+            'form_title_help'     => 'Aparece no viewer público e em listagens.',
+            'form_file'           => 'Arquivo',
+            'form_file_help'      => 'JPEG, PNG ou WebP até 5 MB. O arquivo será processado e um thumbnail 300×300 gerado automaticamente.',
+            'form_category'       => 'Categoria',
+            'form_category_none'  => 'Sem categoria',
+            'form_expires'        => 'Validade do QR',
+            'form_expires_help'   => 'Após esse prazo o público vê "Caso arquivado". A imagem segue no servidor até exclusão definitiva.',
+            'form_expires_none'   => 'Não expira',
+            'form_expires_30d'    => '30 dias',
+            'form_expires_90d'    => '90 dias',
+            'form_expires_1y'     => '1 ano',
+            'form_expires_custom' => 'Data específica',
+
+            'current_image'       => 'Imagem atual',
+            'mime_label'          => 'Formato',
+            'size_label'          => 'Tamanho',
+            'dim_label'           => 'Dimensões',
+            'aspect_label'        => 'Proporção',
+            'uploaded_at'         => 'Enviada em',
+            'original_filename'   => 'Nome original',
+
+            'delete_page_title'   => 'Arquivar imagem',
+            'delete_kicker'       => '━━ ARQUIVAMENTO ━━',
+            'delete_title'        => 'Confirmar arquivamento',
+            'delete_body'         => 'Arquivar a imagem <strong>:title</strong>?<br>O QR público mostrará "Caso arquivado" após esta ação. O arquivo permanece no servidor até exclusão definitiva.',
+            'delete_btn'          => 'Arquivar imagem',
+
+            'hard_delete_page_title' => 'Excluir imagem permanentemente',
+            'hard_delete_kicker'     => '━━ EXCLUSÃO PERMANENTE ━━',
+            'hard_delete_title'      => 'Excluir definitivamente',
+            'hard_delete_body'       => 'Esta ação irá <strong>remover permanentemente</strong> a imagem <strong>:title</strong>, o arquivo do servidor e os :scans registros de acesso. <strong>Não há como desfazer.</strong>',
+            'hard_delete_confirm_label' => 'Digite :title abaixo para confirmar:',
+            'hard_delete_placeholder'   => 'título da imagem',
+            'hard_delete_btn'           => 'Excluir permanentemente',
+            'hard_delete_mismatch'      => 'O título digitado não confere. Exclusão cancelada.',
+
+            'status_active'       => 'Ativa',
+            'status_expiring'     => 'Expirando',
+            'status_expired'      => 'Expirada',
+            'status_disabled'     => 'Desabilitada',
+            'status_deleted'      => 'Arquivada',
+
+            'flash_created'       => 'Imagem <strong>:title</strong> arquivada · Nº <span class="af-mono af-phosphor">:dossier_id</span>',
+            'flash_updated'       => 'Imagem <strong>:title</strong> atualizada.',
+            'flash_archived'      => 'Imagem <strong>:title</strong> arquivada.',
+            'flash_restored'      => 'Imagem <strong>:title</strong> restaurada.',
+            'flash_hard_deleted'  => 'Imagem excluída permanentemente.',
+
+            'permission_denied'   => 'Você não tem permissão para esta ação. Apenas o autor ou um administrador podem editar/arquivar esta imagem.',
+        ],
+
         'users' => [
             'page_title'        => 'Curadores',
             'kicker'            => '━━ REGISTRO DE CURADORES ━━',
@@ -582,6 +676,37 @@ return [
 
             'warning_label'       => 'Acesso restrito · uso interno autorizado · não compartilhe',
             'footer'              => 'Arkham Files · Botanical Containment Division · Liberação Pública',
+        ],
+
+        'image_viewer' => [
+            'kicker'              => '◆ ━━ EVIDÊNCIA FOTOGRÁFICA · LIBERAÇÃO PÚBLICA ━━ ◆',
+            'department'          => 'Setor de Evidências Visuais',
+            'department_short'    => 'S.E.V.',
+            'dossier_id'          => 'Dossiê Nº',
+            'classification'      => 'CLASSIFICAÇÃO',
+            'class_label'         => 'Visual · Liberação Pública',
+
+            'view_full'           => 'Ampliar evidência',
+            'close_full'          => 'Fechar',
+            'download'            => 'Baixar original',
+            'metadata_title'      => '━━ METADADOS DO ARQUIVO ━━',
+
+            'category_label'      => 'Setor de origem',
+            'format_label'        => 'Formato',
+            'dimensions_label'    => 'Dimensões',
+            'aspect_label'        => 'Proporção',
+            'size_label'          => 'Tamanho',
+            'uploaded_label'      => 'Registrado em',
+            'filename_label'      => 'Nome original',
+            'no_category'         => '— não atribuído —',
+
+            'authored_on'         => 'Cadastrado em',
+            'last_revision'       => 'Última atualização',
+            'document_accessed'   => 'Documento acessado em :datetime',
+            'expiring_warning'    => '⚠ DOCUMENTO COM VALIDADE EXPIRANDO — :label',
+
+            'warning_label'       => 'Material visual · uso interno autorizado · não redistribuir',
+            'footer'              => 'Arkham Files · Setor de Evidências Visuais · Liberação Pública',
         ],
 
         'placeholder' => [
