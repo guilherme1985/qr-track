@@ -46,6 +46,7 @@ use ArkhamFiles\Markdown;
 use ArkhamFiles\Strain;
 use ArkhamFiles\ImageQr;
 use ArkhamFiles\ImageUpload;
+use ArkhamFiles\QrRenderer;
 use ArkhamFiles\Http;
 
 $rootDir = dirname(__DIR__);
@@ -78,6 +79,87 @@ $verifyCsrf = static function (): bool {
 // =====================================================================
 $router->get('/', function () use ($rootDir) {
     require $rootDir . '/templates/welcome.php';
+});
+
+// =====================================================================
+// Public QR image endpoints  GET /p/{public_id}.svg  e  .png
+//
+// Geram a imagem QR (SVG vetorial ou PNG raster) que codifica a URL
+// pública /p/{public_id}. Públicos, sem autenticação — mas seguem a
+// MESMA regra de visibilidade do viewer:
+//   - QR ativo/expirando → 200 SVG/PNG
+//   - QR expirado        → 410 (não emite QR de documento arquivado)
+//   - deleted/disabled   → 404
+//   - não existe         → 404
+//
+// Query string opcional `?size=small|medium|large` (default medium)
+// Query string opcional `?plain=1` força ignorar logo da categoria
+//
+// Cache: 1h público — QR de um documento ativo é estável durante esse
+// período (apenas a categoria poderia mudar o ícone, mas isso é raro).
+//
+// IMPORTANTE: estes endpoints precisam estar declarados ANTES do
+// /p/{public_id} genérico, senão o roteador casa o genérico primeiro.
+// =====================================================================
+$qrImageHandler = function (string $publicId, string $format) use ($rootDir) {
+    $publicId = strtolower($publicId);
+
+    if (!preg_match('/^[a-f0-9]{4}-[a-f0-9]{2}$/', $publicId)) {
+        http_response_code(404);
+        echo 'Not found';
+        return;
+    }
+
+    $qr = QrCode::findByPublicId($publicId);
+    if ($qr === null || $qr->isDeleted || $qr->isDisabled) {
+        http_response_code(404);
+        echo 'Not found';
+        return;
+    }
+    if ($qr->isExpired()) {
+        http_response_code(410);
+        echo 'Gone';
+        return;
+    }
+
+    // Determina tamanho (PNG só)
+    $size = QrRenderer::SIZE_MEDIUM;
+    $sizeParam = $_GET['size'] ?? 'medium';
+    if ($sizeParam === 'small')  $size = QrRenderer::SIZE_SMALL;
+    elseif ($sizeParam === 'large')   $size = QrRenderer::SIZE_LARGE;
+
+    // Ícone da categoria como logo (a menos que ?plain=1)
+    $logoPath = null;
+    if (empty($_GET['plain']) && $qr->categoryId !== null) {
+        $cat = Category::findById($qr->categoryId);
+        $logoPath = QrRenderer::categoryIconPath($cat, $rootDir);
+    }
+
+    // URL absoluta — pega scheme + host atual
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $publicUrl = "{$scheme}://{$host}/p/{$publicId}";
+
+    try {
+        $result = QrRenderer::render($publicUrl, $format, $size, $logoPath);
+    } catch (\Throwable $e) {
+        http_response_code(500);
+        error_log("[QR render] {$e->getMessage()}");
+        echo 'Internal error';
+        return;
+    }
+
+    header('Content-Type: ' . $result['mime_type']);
+    header('Cache-Control: public, max-age=3600');
+    header('Content-Length: ' . strlen($result['content']));
+    echo $result['content'];
+};
+
+$router->get('/p/([A-Za-z0-9-]+)\.svg', function (string $publicId) use ($qrImageHandler) {
+    $qrImageHandler($publicId, 'svg');
+});
+$router->get('/p/([A-Za-z0-9-]+)\.png', function (string $publicId) use ($qrImageHandler) {
+    $qrImageHandler($publicId, 'png');
 });
 
 // =====================================================================
@@ -1108,6 +1190,49 @@ $router->post('/admin/categories/(\d+)/delete', function (string $id) use ($root
         $qrCount    = Category::qrCount($category->id);
         require $rootDir . '/templates/admin/categories/delete.php';
     }
+});
+
+// =====================================================================
+// /admin/{type}s/{id}/qr — Página de visualização e download do QR
+//
+// Funciona pros 3 tipos (notes, strains, images). Renderiza preview
+// grande, metadata e 4 botões de download (SVG + 3 PNGs).
+//
+// Permissões: qualquer usuário logado. Não tem ação destrutiva, só
+// visualização. A URL pública /p/xxxx-xx.svg já é pública mesmo.
+// =====================================================================
+$router->get('/admin/(notes|strains|images)/(\d+)/qr', function (string $typePlural, string $id) use ($rootDir) {
+    $user = Auth::requireAuth();
+    Auth::enforcePasswordChange($user);
+    Auth::enforceTwoFactorSetup($user);
+    $currentUser = $user;
+
+    // notes → note, strains → strain, images → image
+    $type = rtrim($typePlural, 's');
+
+    $qr = QrCode::findById((int) $id);
+    if ($qr === null || $qr->type !== $type || $qr->isDeleted) {
+        http_response_code(404);
+        $errorTitle    = t('errors.not_found.title');
+        $errorSubtitle = strtoupper($type) . ' NOT FOUND';
+        $errorCode     = '404';
+        require $rootDir . '/templates/error.php';
+        return;
+    }
+
+    // Verifica disponibilidade do ícone da categoria
+    $iconAvailable = false;
+    if ($qr->categoryId !== null) {
+        $cat = Category::findById($qr->categoryId);
+        $iconAvailable = (QrRenderer::categoryIconPath($cat, $rootDir) !== null);
+    }
+
+    // URL pública (mesmo host)
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $publicUrl = "{$scheme}://{$host}/p/{$qr->publicId}";
+
+    require $rootDir . '/templates/admin/qrcodes/qr-view.php';
 });
 
 // =====================================================================

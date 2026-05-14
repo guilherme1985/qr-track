@@ -54,8 +54,14 @@ ob_start();
 <div class="af-admin-content__title-row">
     <div class="af-admin-content__title"><?= e(mb_strtoupper(t($pageTitleKey))) ?></div>
     <?php if ($isEdit): ?>
-        <div class="af-fs-10 af-mute af-track-1">
-            / Nº <span class="af-mono af-phosphor" style="text-transform:none"><?= e($qr->publicId) ?></span>
+        <div class="af-flex af-gap-3" style="align-items:center">
+            <div class="af-fs-10 af-mute af-track-1">
+                / Nº <span class="af-mono af-phosphor" style="text-transform:none"><?= e($qr->publicId) ?></span>
+            </div>
+            <a href="/admin/notes/<?= e((string) $qr->id) ?>/qr" class="af-btn af-btn--ghost af-btn--sm">
+                <?= icon('qrcode', 'af-icon--sm') ?>
+                VER QR →
+            </a>
         </div>
     <?php endif; ?>
 </div>
