@@ -147,6 +147,10 @@ ob_start();
                            class="af-fs-10 af-track-1 af-soft" style="margin-right:14px">
                             <?= e(mb_strtoupper(t('admin.notes.action_view'))) ?>
                         </a>
+                        <a href="/admin/notes/<?= e((string) $n->id) ?>/qr"
+                           class="af-fs-10 af-track-1 af-phosphor" style="margin-right:14px">
+                            VER QR
+                        </a>
                         <?php if ($canEdit && !$n->isDeleted): ?>
                             <a href="/admin/notes/<?= e((string) $n->id) ?>/edit"
                                class="af-fs-10 af-track-1 af-mute" style="margin-right:14px">

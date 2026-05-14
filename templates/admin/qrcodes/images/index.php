@@ -105,6 +105,9 @@ ob_start();
                     <a href="/p/<?= e($qr->publicId) ?>" target="_blank" rel="noopener" class="af-fs-10 af-track-1 af-soft">
                         <?= e(mb_strtoupper(t('admin.images.action_view'))) ?>
                     </a>
+                    <a href="/admin/images/<?= e((string) $qr->id) ?>/qr" class="af-fs-10 af-track-1 af-phosphor">
+                        VER QR
+                    </a>
                     <?php if ($canEdit && !$qr->isDeleted): ?>
                         <a href="/admin/images/<?= e((string) $qr->id) ?>/edit" class="af-fs-10 af-track-1 af-mute">
                             <?= e(mb_strtoupper(t('admin.images.action_edit'))) ?>
