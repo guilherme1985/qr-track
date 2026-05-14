@@ -5,8 +5,8 @@ namespace ArkhamFiles;
 
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
-use Endroid\QrCode\ErrorCorrectionLevel\ErrorCorrectionLevelHigh;
-use Endroid\QrCode\RoundBlockSizeMode\RoundBlockSizeModeMargin;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\RoundBlockSizeMode;
 use Endroid\QrCode\Writer\PngWriter;
 use Endroid\QrCode\Writer\SvgWriter;
 
@@ -14,15 +14,16 @@ use Endroid\QrCode\Writer\SvgWriter;
  * Renderizador de QR codes — gera SVG e PNG pra URLs públicas
  * `/p/{public_id}` dos QRs do sistema.
  *
- * Implementação compatível com endroid/qr-code 4.x — usa a API fluent
- * (`Builder::create()->...->build()`) que existe em todas as versões
- * 4.x e nas primeiras 5.x.
+ * Implementação testada contra endroid/qr-code 5.1.0 — a versão usa:
+ *   - Builder::create() fluent API (não constructor com args)
+ *   - ErrorCorrectionLevel como enum (case ::High)
+ *   - RoundBlockSizeMode como enum (case ::Margin)
  *
  * Configuração:
  *   - Error correction High (30%) — pra acomodar logo sem perder leitura
  *   - Preto sobre branco — máxima compatibilidade com scanners
  *   - Logo da categoria opcional no centro (PNG, 22% da área, com punchout)
- *   - Margem 2 módulos (quiet zone padrão pra impressão)
+ *   - Margem 8 px (= 2 módulos × 4 px, quiet zone padrão)
  */
 final class QrRenderer
 {
@@ -30,14 +31,14 @@ final class QrRenderer
     public const SIZE_MEDIUM = 600;
     public const SIZE_LARGE  = 1200;
 
-    private const MARGIN_PX = 8; // 2 módulos × 4 px
+    private const MARGIN_PX = 8;
 
     /**
      * Gera o QR e retorna o conteúdo binário/textual.
      *
-     * @param string $url        URL completa que o QR codifica
+     * @param string $url       URL completa que o QR codifica
      * @param 'png'|'svg' $format
-     * @param int $size          tamanho em pixels (use SIZE_* ou custom)
+     * @param int $size         tamanho em pixels (use SIZE_* ou custom)
      * @param string|null $logoPath  caminho absoluto pra logo PNG ou null
      *
      * @return array{content: string, mime_type: string}
@@ -58,14 +59,15 @@ final class QrRenderer
             ->writer($writer)
             ->data($url)
             ->encoding(new Encoding('UTF-8'))
-            ->errorCorrectionLevel(new ErrorCorrectionLevelHigh())
+            ->errorCorrectionLevel(ErrorCorrectionLevel::High)
             ->size($size)
             ->margin(self::MARGIN_PX)
-            ->roundBlockSizeMode(new RoundBlockSizeModeMargin());
+            ->roundBlockSizeMode(RoundBlockSizeMode::Margin);
 
-        // Logo só pra PNG — SVG com logo embedado tem bugs de namespace
+        // Logo só pra PNG — SVG com logo embedado tem incompatibilidades
+        // entre renderizadores (anchor/namespace). Em SVG queremos pureza.
         if ($logoPath !== null && $format === 'png' && is_file($logoPath)) {
-            $logoSize = (int) round($size * 0.22);
+            $logoSize = (int) round($size * 0.22); // 22% da área
             $builder = $builder
                 ->logoPath($logoPath)
                 ->logoResizeToWidth($logoSize)
