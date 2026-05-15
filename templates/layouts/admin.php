@@ -142,6 +142,11 @@ ob_start();
                         <?= icon('settings', 'af-icon--sm af-soft') ?>
                         <?= e(t('admin.sidebar.settings')) ?>
                     </a>
+                    <a href="/admin/settings/maintenance" class="af-tree__item">
+                        <span class="af-tree__caret"></span>
+                        <?= icon('alert-triangle', 'af-icon--sm af-soft') ?>
+                        <?= e(t('admin.sidebar.maintenance')) ?>
+                    </a>
                     <form method="post" action="/admin/logout" style="margin:0">
                         <?= \ArkhamFiles\Auth\Session::csrfField() ?>
                         <button type="submit" class="af-tree__item"

@@ -1,155 +1,252 @@
 <?php
 /**
- * Dashboard administrativo — visual completo, mock data hardcoded.
- * O carregamento real virá nos PRs seguintes (categorias, expiração, tipos).
+ * Dashboard administrativo — agora com dados reais.
+ *
+ * Vars esperadas (todas calculadas pelo handler em public/index.php):
+ *   $stats           → array de contadores por status
+ *   $countByType     → ['note' => 3, 'strain' => 1, 'image' => 2]
+ *   $recentQrs       → list<QrCode>  (últimos 5 criados, não-deleted)
+ *   $recentScans     → array de scans recentes  (joinados com qrcode)
+ *   $recentAudit     → list<array>  (últimas 10 entradas relevantes)
+ *   $maintenanceActive → bool (banner se manutenção tá ativa)
+ *   $currentUser     → User
  */
+use ArkhamFiles\QrCode;
 
-use ArkhamFiles\Icon;
+$stats             = $stats             ?? [];
+$countByType       = $countByType       ?? [];
+$recentQrs         = $recentQrs         ?? [];
+$recentScans       = $recentScans       ?? [];
+$recentAudit       = $recentAudit       ?? [];
+$maintenanceActive = $maintenanceActive ?? false;
 
-// Mock: árvore de categorias
-$categoryTree = [
-    [
-        'name'     => 'Pessoal', 'slug' => 'pessoal', 'count' => 12,
-        'expanded' => false,
-        'children' => [
-            ['name' => 'Família', 'slug' => 'familia', 'count' => 4],
-            ['name' => 'Médico',  'slug' => 'medico',  'count' => 3],
-        ],
-    ],
-    [
-        'name'     => 'Cultivo', 'slug' => 'cultivo', 'count' => 28,
-        'expanded' => true,
-        'children' => [
-            [
-                'name' => 'Indica', 'slug' => 'indica', 'count' => 14,
-                'expanded' => true,
-                'children' => [
-                    ['name' => 'Northern Lights', 'slug' => 'northern-lights', 'count' => 6],
-                    ['name' => 'Bubba Kush',      'slug' => 'bubba-kush',      'count' => 4],
-                ],
-            ],
-            ['name' => 'Sativa',  'slug' => 'sativa',  'count' => 9],
-            ['name' => 'Híbrida', 'slug' => 'hibrida', 'count' => 5],
-        ],
-    ],
-    [
-        'name' => 'Trabalho', 'slug' => 'trabalho', 'count' => 7,
-        'expanded' => false,
-        'children' => [
-            ['name' => 'Clientes',     'slug' => 'clientes',     'count' => 4],
-            ['name' => 'Fornecedores', 'slug' => 'fornecedores', 'count' => 3],
-        ],
-    ],
-    ['name' => 'Wifi', 'slug' => 'wifi', 'count' => 3],
+$typeIcons = [
+    'note'   => 'notes',
+    'strain' => 'seedling',
+    'image'  => 'photo',
 ];
-// Lê a categoria ativa da query string (ex: /admin/dashboard?category=indica).
-// Sanitiza pra evitar XSS no atributo HTML do <a> e na comparação na sidebar.
-$activeCategory = isset($_GET['category']) && is_string($_GET['category'])
-    ? preg_replace('/[^a-z0-9-]/', '', strtolower($_GET['category']))
-    : '';
-// $currentUser vem do middleware/index.php. $userInitials e role são calculados no layout.
-
-// Mock: stats
-$stats = [
-    ['label' => t('admin.dashboard.stat_active'),    'value' => '247', 'tone' => 'phosphor'],
-    ['label' => t('admin.dashboard.stat_expiring'),  'value' => '12',  'tone' => 'gold'],
-    ['label' => t('admin.dashboard.stat_archived'),  'value' => '3',   'tone' => 'blood'],
-    ['label' => t('admin.dashboard.stat_scans_24h'), 'value' => '1.4K','tone' => ''],
-];
-
-// Mock: linhas de QRs
-$rows = [
-    ['icon' => 'leaf',  'tone' => 'phosphor', 'title' => 'Northern Lights #3',        'meta' => 'A4F8-2D · feminizada · indica',     'scans' => '127', 'scans_tone' => 'phosphor', 'status' => 'active',   'expires' => '∞ permanente'],
-    ['icon' => 'leaf',  'tone' => 'phosphor', 'title' => 'Bubba Kush #7',             'meta' => 'F5B6-9D · clone · indica',          'scans' => '54',  'scans_tone' => 'blood',    'status' => 'archived', 'expires' => '14.MAR.26'],
-    ['icon' => 'notes', 'tone' => 'gold',     'title' => 'Receita do amplificador',   'meta' => 'B7C2-1F · markdown · pessoal',      'scans' => '43',  'scans_tone' => '',         'status' => 'expiring', 'expires' => '42 dias'],
-    ['icon' => 'photo', 'tone' => 'gold',     'title' => 'Setup do bench',            'meta' => 'C2E9-8A · 847 KB · trabalho',       'scans' => '18',  'scans_tone' => '',         'status' => 'expiring', 'expires' => '3 dias'],
-    ['icon' => 'link',  'tone' => 'phosphor', 'title' => 'Repositório do projeto',    'meta' => 'D1F4-5B · github.com · trabalho',   'scans' => '891', 'scans_tone' => 'phosphor', 'status' => 'active',   'expires' => '∞ permanente'],
-    ['icon' => 'wifi',  'tone' => 'phosphor', 'title' => 'Wifi convidados',           'meta' => 'E3A1-7C · WPA2 · wifi',             'scans' => '6',   'scans_tone' => '',         'status' => 'active',   'expires' => '∞ permanente'],
-];
-
-$statusToTone = [
-    'active'   => ['tone' => 'phosphor', 'symbol' => '●', 'label' => mb_strtoupper(t('common.status_active'))],
-    'archived' => ['tone' => 'blood',    'symbol' => '⊘', 'label' => mb_strtoupper(t('common.status_archived'))],
-    'expiring' => ['tone' => 'gold',     'symbol' => '⚠', 'label' => mb_strtoupper(t('common.status_expiring'))],
+$typePaths = [
+    'note'   => 'notes',
+    'strain' => 'strains',
+    'image'  => 'images',
 ];
 
 ob_start();
 ?>
+<?php if ($maintenanceActive): ?>
+    <!-- Banner de manutenção ATIVA (só admin vê isso) -->
+    <div style="padding:14px 18px;border:0.5px solid var(--af-blood);background:rgba(92,26,27,0.08);margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div class="af-fs-11 af-blood af-track-1">
+            ⚙ <?= e(t('admin.dashboard.maintenance_banner')) ?>
+        </div>
+        <a href="/admin/settings/maintenance" class="af-btn af-btn--ghost af-btn--sm">
+            <?= e(mb_strtoupper(t('admin.dashboard.maintenance_manage'))) ?>
+        </a>
+    </div>
+<?php endif; ?>
+
 <div class="af-admin-content__title-row">
-    <div class="af-admin-content__title">CULTIVO / INDICA</div>
-    <div class="af-fs-10 af-mute af-track-1">14 arquivos</div>
+    <div class="af-admin-content__title"><?= e(mb_strtoupper(t('admin.dashboard.page_title'))) ?></div>
+    <div class="af-fs-10 af-mute af-track-1">
+        <?= e(mb_strtoupper(gmdate('d.m.Y · H:i'))) ?> UTC
+    </div>
 </div>
 
-<!-- Stats -->
-<div class="af-stats-grid">
-    <?php foreach ($stats as $s): ?>
-        <div class="af-stat <?= $s['tone'] ? 'af-stat--' . e($s['tone']) : '' ?>">
-            <div class="af-stat__label"><?= e(mb_strtoupper($s['label'])) ?></div>
-            <div class="af-stat__value"><?= e($s['value']) ?></div>
+<div class="af-divider af-mb-4" style="max-width:300px;margin:0 0 24px 0">
+    <span class="af-gold af-fs-9 af-track-3">━━ <?= e(t('admin.dashboard.kicker')) ?> ━━</span>
+</div>
+
+<!-- STATS GRID -->
+<div class="af-dash-stats">
+    <?php foreach ($stats as $stat): ?>
+        <div class="af-dash-stat-card">
+            <div class="af-fs-10 af-track-3 af-mute af-mb-2"><?= e(mb_strtoupper($stat['label'])) ?></div>
+            <div class="af-display af-w-500 <?= e($stat['tone'] ?? '') ?>" style="font-size:42px;line-height:1">
+                <?= e((string) $stat['value']) ?>
+            </div>
         </div>
     <?php endforeach; ?>
 </div>
 
-<!-- Filtros / ações -->
-<div class="af-filter-bar">
-    <button class="af-btn af-btn--primary af-btn--sm">
-        <?= e(mb_strtoupper(t('admin.dashboard.btn_new'))) ?>
-    </button>
-    <button class="af-btn af-btn--ghost af-btn--sm">
-        <?= e(mb_strtoupper(t('admin.dashboard.filter_type'))) ?> ▾
-    </button>
-    <button class="af-btn af-btn--ghost af-btn--sm">
-        <?= e(mb_strtoupper(t('admin.dashboard.filter_status'))) ?> ▾
-    </button>
-    <button class="af-btn af-btn--sm">
-        <?= e(t('admin.dashboard.filter_subcats')) ?>
-    </button>
-</div>
-
-<!-- Listagem -->
-<div class="af-case-list">
-    <div class="af-case-list__head">
-        <div><?= e(mb_strtoupper(t('admin.dashboard.col_type'))) ?></div>
-        <div><?= e(mb_strtoupper(t('admin.dashboard.col_dossier'))) ?></div>
-        <div class="af-text-r"><?= e(mb_strtoupper(t('admin.dashboard.col_scans'))) ?></div>
-        <div><?= e(mb_strtoupper(t('admin.dashboard.col_expires'))) ?></div>
-    </div>
-    <?php foreach ($rows as $r): ?>
-        <?php
-        $st = $statusToTone[$r['status']];
-        ?>
-        <a href="#" class="af-case-list__row">
-            <?= Icon::render($r['icon'], 'af-icon--lg af-' . e($r['tone'])) ?>
-            <div>
-                <div class="af-case-list__title"><?= e($r['title']) ?></div>
-                <div class="af-case-list__meta"><?= e($r['meta']) ?></div>
-            </div>
-            <div class="af-case-list__scans <?= $r['scans_tone'] ? 'af-' . e($r['scans_tone']) : '' ?>">
-                <?= e($r['scans']) ?>
-            </div>
-            <div class="af-fs-9 af-track-1 af-<?= e($st['tone']) ?>">
-                <?= e($st['symbol']) ?> <?= e($st['label']) ?>
-                <div class="af-mute af-fs-9 af-mt-1"><?= e($r['expires']) ?></div>
+<!-- CONTAGEM POR TIPO -->
+<div style="margin-top:32px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;max-width:760px">
+    <?php foreach (['note', 'strain', 'image'] as $type):
+        $count = $countByType[$type] ?? 0;
+        $iconName = $typeIcons[$type];
+        $path = $typePaths[$type];
+    ?>
+        <a href="/admin/<?= e($path) ?>" class="af-dash-type-card" style="text-decoration:none;color:inherit">
+            <div class="af-flex" style="align-items:center;gap:12px">
+                <?= icon($iconName, 'af-icon--md af-phosphor') ?>
+                <div>
+                    <div class="af-mono af-fs-10 af-track-2 af-mute"><?= e(mb_strtoupper(t('admin.dashboard.type_' . $type))) ?></div>
+                    <div class="af-display af-w-500" style="font-size:24px;line-height:1.1">
+                        <?= e((string) $count) ?>
+                    </div>
+                </div>
             </div>
         </a>
     <?php endforeach; ?>
 </div>
 
-<!-- Paginação -->
-<div class="af-pagination">
-    <div><?= e(mb_strtoupper(t('admin.dashboard.pagination_showing', ['from' => 1, 'to' => 6, 'total' => 14]))) ?></div>
-    <div class="af-pagination__pages">
-        <a class="af-pagination__page" href="#">‹</a>
-        <a class="af-pagination__page af-pagination__page--active" href="#">1</a>
-        <a class="af-pagination__page" href="#">2</a>
-        <a class="af-pagination__page" href="#">3</a>
-        <a class="af-pagination__page" href="#">›</a>
+<!-- DUAS COLUNAS: ÚLTIMOS QRs E ÚLTIMOS SCANS -->
+<div class="af-dash-columns" style="margin-top:40px">
+    <!-- Últimos criados -->
+    <div>
+        <div class="af-fs-9 af-track-3 af-gold af-mb-3">
+            ━━ <?= e(t('admin.dashboard.recent_qrs_title')) ?> ━━
+        </div>
+
+        <?php if ($recentQrs === []): ?>
+            <div class="af-panel af-mute af-fs-12" style="text-align:center;padding:24px">
+                <?= e(t('admin.dashboard.empty_recent_qrs')) ?>
+            </div>
+        <?php else: ?>
+            <div class="af-dash-list">
+                <?php foreach ($recentQrs as $qr):
+                    $iconName = $typeIcons[$qr->type] ?? 'qrcode';
+                    $path = $typePaths[$qr->type] ?? 'notes';
+                ?>
+                    <a href="/admin/<?= e($path) ?>/<?= e((string) $qr->id) ?>/edit" class="af-dash-list-item">
+                        <?= icon($iconName, 'af-icon--sm af-phosphor') ?>
+                        <div style="flex:1;min-width:0">
+                            <div class="af-fs-11 af-w-500" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                <?= e($qr->title) ?>
+                            </div>
+                            <div class="af-mono af-fs-10 af-mute" style="text-transform:none">
+                                <?= e($qr->publicId) ?> · <?= e(mb_strtoupper($qr->type)) ?>
+                            </div>
+                        </div>
+                        <div class="af-fs-10 af-faint af-mono" style="white-space:nowrap">
+                            <?= e(substr($qr->createdAt, 5, 11)) /* "MM-DD HH:MM" */ ?>
+                        </div>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Últimos scans -->
+    <div>
+        <div class="af-fs-9 af-track-3 af-gold af-mb-3">
+            ━━ <?= e(t('admin.dashboard.recent_scans_title')) ?> ━━
+        </div>
+
+        <?php if ($recentScans === []): ?>
+            <div class="af-panel af-mute af-fs-12" style="text-align:center;padding:24px">
+                <?= e(t('admin.dashboard.empty_recent_scans')) ?>
+            </div>
+        <?php else: ?>
+            <div class="af-dash-list">
+                <?php foreach ($recentScans as $scan):
+                    $iconName = $typeIcons[$scan['type']] ?? 'qrcode';
+                ?>
+                    <div class="af-dash-list-item">
+                        <?= icon($iconName, 'af-icon--sm af-soft') ?>
+                        <div style="flex:1;min-width:0">
+                            <div class="af-fs-11" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                <?= e($scan['title'] ?? '—') ?>
+                            </div>
+                            <div class="af-mono af-fs-10 af-mute" style="text-transform:none">
+                                <?= e($scan['public_id']) ?> · <?= e($scan['ip_address'] ?? '—') ?>
+                            </div>
+                        </div>
+                        <div class="af-fs-10 af-faint af-mono" style="white-space:nowrap">
+                            <?= e(substr($scan['scanned_at'], 5, 11)) ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
+
+<!-- AUDIT LOG RECENTE -->
+<?php if ($recentAudit !== []): ?>
+<div style="margin-top:40px;max-width:980px">
+    <div class="af-fs-9 af-track-3 af-gold af-mb-3">
+        ━━ <?= e(t('admin.dashboard.recent_audit_title')) ?> ━━
+    </div>
+
+    <div class="af-dash-list">
+        <?php foreach ($recentAudit as $entry):
+            $eventColor = str_contains($entry['event_type'], 'failed') || str_contains($entry['event_type'], 'denied') || str_contains($entry['event_type'], 'deleted')
+                ? 'af-blood' : 'af-mute';
+        ?>
+            <div class="af-dash-list-item">
+                <span class="af-mono af-fs-9 af-track-1 <?= $eventColor ?>" style="min-width:140px;text-transform:none">
+                    <?= e($entry['event_type']) ?>
+                </span>
+                <div style="flex:1;min-width:0">
+                    <div class="af-fs-11 af-soft">
+                        <?= e($entry['username'] ?? '—') ?>
+                    </div>
+                    <div class="af-mono af-fs-10 af-faint">
+                        <?= e($entry['ip_address'] ?? '—') ?>
+                    </div>
+                </div>
+                <div class="af-fs-10 af-faint af-mono" style="white-space:nowrap">
+                    <?= e(substr($entry['created_at'], 5, 11)) ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+
+<style>
+.af-dash-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    max-width: 760px;
+}
+.af-dash-stat-card {
+    padding: 18px 20px;
+    border: 0.5px solid var(--af-border);
+    background: rgba(255, 255, 255, 0.02);
+}
+.af-dash-type-card {
+    padding: 14px 18px;
+    border: 0.5px solid var(--af-border);
+    background: rgba(125, 219, 79, 0.02);
+    transition: border-color 0.15s ease;
+}
+.af-dash-type-card:hover {
+    border-color: var(--af-phosphor);
+}
+.af-dash-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    max-width: 980px;
+}
+@media (max-width: 768px) {
+    .af-dash-columns { grid-template-columns: 1fr; }
+}
+.af-dash-list {
+    display: flex;
+    flex-direction: column;
+    border: 0.5px solid var(--af-border);
+}
+.af-dash-list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 0.5px solid var(--af-border);
+    background: rgba(255, 255, 255, 0.01);
+    transition: background 0.15s ease;
+    text-decoration: none;
+    color: inherit;
+}
+.af-dash-list-item:last-child { border-bottom: none; }
+a.af-dash-list-item:hover {
+    background: rgba(125, 219, 79, 0.04);
+}
+</style>
 <?php
 $content = ob_get_clean();
-
-// Renderiza dentro do shell admin
 $bodyContent = $content;
 $title = t('admin.dashboard.page_title');
-require dirname(__DIR__) . '/layouts/admin.php';
+require dirname(dirname(__DIR__)) . '/templates/layouts/admin.php';

@@ -1,13 +1,14 @@
 <?php
 /**
- * Página de erro genérica e flexível. Suporta 3 modos:
+ * Página de erro genérica. Suporta 4 modos:
  *
  *   1. 404 / WIP / outros          → tela básica (code + title + subtitle + botão back)
  *   2. 410 (expirado, /p/{id})     → kicker + title + subtitle + body + archived_on + retention
  *   3. 403 (forbidden)             → tela básica com tom blood mais forte
+ *   4. 500 (server error)          → tela com tom blood + "ANOMALIA DETECTADA"
  *
  * Variáveis (todas opcionais — defaults sensatos):
- *   $errorCode        → 404 | 410 | 403 | WIP ...
+ *   $errorCode        → 404 | 410 | 403 | 500 | WIP ...
  *   $errorKicker      → linha de prefixo ouro (modo 410)
  *   $errorTitle       → título principal
  *   $errorSubtitle    → linha em mono blood
@@ -24,11 +25,11 @@ $errorBody       = $errorBody       ?? null;
 $errorArchivedOn = $errorArchivedOn ?? null;
 $errorRetention  = $errorRetention  ?? null;
 
-// O headline "ARQUIVO INACESSÍVEL" muda conforme o code
 $inaccessibleLabel = match ((string) $errorCode) {
-    '410'   => '━━ DOCUMENTO ARQUIVADO ━━',
-    '403'   => '━━ ACESSO NEGADO ━━',
-    default => '━━ ARQUIVO INACESSÍVEL ━━',
+    '410'   => '━━ ' . mb_strtoupper(t('errors.expired.banner_label'))    . ' ━━',
+    '403'   => '━━ ' . mb_strtoupper(t('errors.forbidden.banner_label'))  . ' ━━',
+    '500'   => '━━ ' . mb_strtoupper(t('errors.server.banner_label'))     . ' ━━',
+    default => '━━ ' . mb_strtoupper(t('errors.not_found.banner_label'))  . ' ━━',
 };
 
 ob_start();

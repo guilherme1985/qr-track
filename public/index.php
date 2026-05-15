@@ -48,10 +48,41 @@ use ArkhamFiles\ImageQr;
 use ArkhamFiles\ImageUpload;
 use ArkhamFiles\QrRenderer;
 use ArkhamFiles\Http;
+use ArkhamFiles\Maintenance;
 
 $rootDir = dirname(__DIR__);
 Bootstrap::init($rootDir);
 Audit::maybePurge();
+
+// =====================================================================
+// MIDDLEWARE: modo manutenção
+//
+// Checa data/maintenance.flag em CADA request. Se o arquivo existe e:
+//   - a rota não está na lista de exceções (login, healthz, assets)
+//   - o usuário NÃO é admin logado (admin sempre tem bypass)
+// → renderiza tela 503 de manutenção e encerra.
+//
+// Admins continuam acessando normalmente (e vêem banner de alerta no dashboard).
+// =====================================================================
+if (Maintenance::isActive()) {
+    $currentUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    if (!Maintenance::shouldBypass($currentUri)) {
+        // Tenta detectar admin logado sem bloquear se a sessão não existir
+        $bypass = false;
+        try {
+            Session::start();
+            $current = Auth::currentUser();
+            if ($current !== null && $current->isAdmin()) {
+                $bypass = true;
+            }
+        } catch (\Throwable $e) {
+            // Se algo falhar, segue com a tela de manutenção
+        }
+        if (!$bypass) {
+            Maintenance::render($rootDir);
+        }
+    }
+}
 
 $router = new Bramus\Router\Router();
 
@@ -75,10 +106,14 @@ $verifyCsrf = static function (): bool {
 };
 
 // =====================================================================
-// Welcome / status / smoke test (público)
+// Welcome (público) e Healthz (smoke test)
 // =====================================================================
 $router->get('/', function () use ($rootDir) {
     require $rootDir . '/templates/welcome.php';
+});
+
+$router->get('/healthz', function () use ($rootDir) {
+    require $rootDir . '/templates/healthz.php';
 });
 
 // =====================================================================
@@ -425,6 +460,98 @@ $router->get('/admin/dashboard', function () use ($rootDir) {
     Auth::enforcePasswordChange($user);
     Auth::enforceTwoFactorSetup($user);
     $currentUser = $user;
+
+    $pdo = \ArkhamFiles\Database::pdo();
+
+    // Contagens por status (apenas tipos ricos: note/strain/image)
+    $now = gmdate('Y-m-d H:i:s');
+    $expiringThreshold = gmdate('Y-m-d H:i:s', strtotime('+7 days'));
+
+    $statQuery = $pdo->query("
+        SELECT
+          SUM(CASE WHEN is_deleted=0 AND is_disabled=0
+                    AND type IN ('note','strain','image')
+                    AND (expires_at IS NULL OR expires_at > '{$now}') THEN 1 ELSE 0 END) AS active,
+          SUM(CASE WHEN is_deleted=0 AND is_disabled=0
+                    AND type IN ('note','strain','image')
+                    AND expires_at IS NOT NULL
+                    AND expires_at > '{$now}'
+                    AND expires_at <= '{$expiringThreshold}' THEN 1 ELSE 0 END) AS expiring,
+          SUM(CASE WHEN is_deleted=0 AND is_disabled=0
+                    AND type IN ('note','strain','image')
+                    AND expires_at IS NOT NULL
+                    AND expires_at <= '{$now}' THEN 1 ELSE 0 END) AS expired,
+          SUM(CASE WHEN is_deleted=1
+                    AND type IN ('note','strain','image') THEN 1 ELSE 0 END) AS archived
+        FROM qrcodes
+    ")->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+    $scans24hCount = (int) $pdo->query("
+        SELECT COUNT(*) FROM scans
+         WHERE scanned_at > datetime('now', '-1 day')
+    ")->fetchColumn();
+
+    $stats = [
+        ['label' => t('admin.dashboard.stat_active'),    'value' => (string) ($statQuery['active']   ?? 0), 'tone' => 'af-phosphor'],
+        ['label' => t('admin.dashboard.stat_expiring'),  'value' => (string) ($statQuery['expiring'] ?? 0), 'tone' => 'af-gold'],
+        ['label' => t('admin.dashboard.stat_expired'),   'value' => (string) ($statQuery['expired']  ?? 0), 'tone' => 'af-blood'],
+        ['label' => t('admin.dashboard.stat_archived'),  'value' => (string) ($statQuery['archived'] ?? 0), 'tone' => 'af-mute'],
+        ['label' => t('admin.dashboard.stat_scans_24h'), 'value' => (string) $scans24hCount, 'tone' => ''],
+    ];
+
+    // Contagem por tipo (ativos não-arquivados)
+    $countByTypeRaw = $pdo->query("
+        SELECT type, COUNT(*) as c FROM qrcodes
+         WHERE is_deleted=0 AND type IN ('note','strain','image')
+         GROUP BY type
+    ")->fetchAll(\PDO::FETCH_KEY_PAIR) ?: [];
+    $countByType = [
+        'note'   => (int) ($countByTypeRaw['note']   ?? 0),
+        'strain' => (int) ($countByTypeRaw['strain'] ?? 0),
+        'image'  => (int) ($countByTypeRaw['image']  ?? 0),
+    ];
+
+    // Últimos 5 QRs criados (filtra por todos os tipos ricos)
+    $allRecent = [];
+    foreach (['note', 'strain', 'image'] as $t) {
+        $items = QrCode::listWithFilters(['type' => $t, 'status' => 'all-active']);
+        foreach ($items as $qr) {
+            $allRecent[] = $qr;
+        }
+    }
+    // Ordena por createdAt desc e pega top 5
+    usort($allRecent, fn($a, $b) => strcmp($b->createdAt, $a->createdAt));
+    $recentQrs = array_slice($allRecent, 0, 5);
+
+    // Últimos 8 scans (com title do QR)
+    $recentScans = $pdo->query("
+        SELECT s.scanned_at, s.ip_address,
+               q.public_id, q.title, q.type
+          FROM scans s
+          JOIN qrcodes q ON q.id = s.qr_id
+         ORDER BY s.scanned_at DESC
+         LIMIT 8
+    ")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    // Últimas 8 entradas relevantes do audit log
+    $recentAudit = $pdo->query("
+        SELECT a.event_type, a.created_at, a.ip_address,
+               u.username
+          FROM audit_log a
+          LEFT JOIN users u ON u.id = a.user_id
+         WHERE a.event_type IN (
+             'login_success', 'login_failed', 'logout',
+             'qrcode_created', 'qrcode_updated', 'qrcode_archived',
+             'qrcode_hard_deleted', 'qrcode_restored',
+             'user_created', 'user_deleted',
+             'maintenance_enabled', 'maintenance_disabled'
+         )
+         ORDER BY a.created_at DESC
+         LIMIT 8
+    ")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $maintenanceActive = Maintenance::isActive();
+
     require $rootDir . '/templates/admin/dashboard.php';
 });
 
@@ -434,6 +561,62 @@ $router->get('/admin/settings', function () use ($rootDir) {
     Auth::enforceTwoFactorSetup($user);
     $currentUser = $user;
     require $rootDir . '/templates/admin/settings.php';
+});
+
+// =====================================================================
+// /admin/settings/maintenance — toggle do modo manutenção (admin only)
+// =====================================================================
+$router->get('/admin/settings/maintenance', function () use ($rootDir) {
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+    $currentUser = $admin;
+
+    $isActive = Maintenance::isActive();
+    $currentMessage = $isActive ? Maintenance::message() : '';
+    $flashMessage = Session::get('flash');
+    Session::unset('flash');
+    require $rootDir . '/templates/admin/settings/maintenance.php';
+});
+
+$router->post('/admin/settings/maintenance/enable', function () use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+
+    $message = trim((string) ($_POST['message'] ?? ''));
+    if (mb_strlen($message) > 500) {
+        $message = mb_substr($message, 0, 500);
+    }
+
+    $ok = Maintenance::enable($message);
+    if ($ok) {
+        Audit::log('maintenance_enabled', $admin->id, 'system', null,
+            ['message' => $message !== '' ? $message : '(default)'],
+            Http::clientIp(), Http::userAgent());
+        Session::set('flash', t('admin.maintenance.flash_enabled'));
+    } else {
+        Session::set('flash', t('admin.maintenance.flash_error'));
+    }
+    header('Location: /admin/settings/maintenance', true, 302);
+});
+
+$router->post('/admin/settings/maintenance/disable', function () use ($verifyCsrf) {
+    if (!$verifyCsrf()) return;
+    $admin = Auth::requireRole(User::ROLE_ADMIN);
+    Auth::enforcePasswordChange($admin);
+    Auth::enforceTwoFactorSetup($admin);
+
+    $ok = Maintenance::disable();
+    if ($ok) {
+        Audit::log('maintenance_disabled', $admin->id, 'system', null,
+            [], Http::clientIp(), Http::userAgent());
+        Session::set('flash', t('admin.maintenance.flash_disabled'));
+    } else {
+        Session::set('flash', t('admin.maintenance.flash_error'));
+    }
+    header('Location: /admin/settings/maintenance', true, 302);
 });
 
 // =====================================================================
@@ -2366,7 +2549,7 @@ $router->post('/admin/images/(\d+)/delete-hard', function (string $id) use ($roo
 });
 
 // =====================================================================
-// 404
+// 404 + 500 handlers
 // =====================================================================
 $router->set404(function () use ($rootDir) {
     http_response_code(404);
@@ -2376,4 +2559,31 @@ $router->set404(function () use ($rootDir) {
     require $rootDir . '/templates/error.php';
 });
 
-$router->run();
+// Global error handler — captura exceções não tratadas e renderiza 500
+// temática. Em dev, mostra detalhes; em prod, mensagem genérica.
+set_exception_handler(function (\Throwable $e) use ($rootDir) {
+    error_log('[uncaught] ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+    $errorTitle    = t('errors.server.title');
+    $errorSubtitle = t('errors.server.subtitle');
+    $errorCode     = '500';
+    $errorBody     = t('errors.server.body');
+    require $rootDir . '/templates/error.php';
+});
+
+try {
+    $router->run();
+} catch (\Throwable $e) {
+    // Fallback caso set_exception_handler não pegue (raro)
+    error_log('[router] ' . $e->getMessage());
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+    $errorTitle    = t('errors.server.title');
+    $errorSubtitle = t('errors.server.subtitle');
+    $errorCode     = '500';
+    $errorBody     = t('errors.server.body');
+    require $rootDir . '/templates/error.php';
+}
