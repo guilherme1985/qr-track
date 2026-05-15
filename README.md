@@ -7,17 +7,22 @@
 
 ## Heritage
 
-Este projeto é um **fork de [tuxxin/qr-track](https://github.com/tuxxin/qr-track)**, licenciado sob GPL-3.0. A partir do tag `v1.0.0` o código foi substancialmente reescrito:
+Este projeto é um **fork de [tuxxin/qr-track](https://github.com/tuxxin/qr-track)**, licenciado sob GPL-3.0. A partir do tag `v1.0.0` o código foi substancialmente reescrito; do upstream restou apenas a ideia conceitual de "QR público com tracking de acessos".
+
+O que mudou:
 
 - Identidade visual nova (tema **Arkham Files** — verde-fósforo + ouro vitoriano sobre preto)
-- Hash de senha **Argon2id** + autenticação **2FA TOTP**
-- **Categorias hierárquicas** (árvore com profundidade até 3)
-- Novos tipos de QR: **Notas** (Markdown), **Strain** (perfil de cultivo), **Imagem** (upload)
+- Hash de senha **Argon2id** + autenticação **2FA TOTP** obrigatória para admins
+- **Categorias hierárquicas** (árvore com profundidade até 3) com ícones e cores
+- Tipos de QR **estruturados**: Notas (Markdown), Strain (perfil de cultivo), Imagem (upload com thumbnail)
 - **Expiração** configurável (30/60/90 dias ou nunca)
-- Localização **PT-BR**
-- Arquitetura moderna: PSR-4, Composer, sistema de migrations versionadas
+- **Geração de QR Code** própria (SVG vetorial + PNG nos 3 tamanhos) com logo da categoria no centro
+- **Modo manutenção** via arquivo flag
+- Dashboard com contadores reais, audit log e listagem de acessos
+- Localização **PT-BR** completa
+- Arquitetura PSR-4, Composer, migrations versionadas
 
-A geração e tracking de QR são herança conceitual do projeto original. Licença permanece **GPL-3.0-or-later**.
+Licença permanece **GPL-3.0-or-later** (ver [LICENSE](LICENSE)).
 
 ---
 
@@ -29,33 +34,26 @@ A geração e tracking de QR são herança conceitual do projeto original. Licen
 | Banco | SQLite 3 (WAL mode) |
 | Web server | nginx + PHP-FPM |
 | Roteador | bramus/router |
-| QR | endroid/qr-code |
-| 2FA | pragmarx/google2fa |
-| Markdown | erusev/parsedown |
+| QR público | endroid/qr-code (v5.1) |
+| QR do 2FA | bacon/bacon-qr-code |
+| 2FA TOTP | pragmarx/google2fa |
+| Markdown | erusev/parsedown-extra |
 | Deploy típico | LXC no Proxmox + Cloudflare Tunnel |
 
 ---
 
-## Instalação (produção)
+## Documentação
 
-Provisionamento completo da infra está em [`docs/00-provisionamento-infra.md`](docs/00-provisionamento-infra.md). Resumo:
+Documentação completa em [`docs/`](docs/):
 
-```bash
-# Dentro do LXC qrtrack
-cd /var/www/qrtrack
-git clone https://github.com/guilherme1985/qr-track.git .
-composer install --no-dev --optimize-autoloader
-cp .env.example .env
-# edite .env conforme seu ambiente
-php bin/migrate.php
-chown -R qrtrack:qrtrack .
-```
-
-Após isso, o nginx já configurado no LXC serve a aplicação a partir de `/var/www/qrtrack/public`.
+- [`00-provisionamento-infra.md`](docs/00-provisionamento-infra.md) — Criação do LXC, instalação de dependências, configuração de nginx, php-fpm, Cloudflare Tunnel e Access
+- [`01-deploy.md`](docs/01-deploy.md) — Deploy da aplicação no servidor já provisionado
+- [`02-arquitetura.md`](docs/02-arquitetura.md) — Visão geral de componentes, camadas, modelos e fluxos
+- [`03-troubleshooting.md`](docs/03-troubleshooting.md) — Problemas comuns e como diagnosticá-los
 
 ---
 
-## Desenvolvimento local
+## Quick start (desenvolvimento local)
 
 ```bash
 git clone https://github.com/guilherme1985/qr-track.git arkham-files
@@ -64,8 +62,11 @@ composer install
 cp .env.example .env
 # Para dev local, ajuste DB_PATH, STORAGE_PATH, UPLOAD_PATH para caminhos locais
 php bin/migrate.php
-composer serve  # http://127.0.0.1:8080
+php bin/create-user.php  # cria primeiro admin (interativo)
+composer serve           # http://127.0.0.1:8080
 ```
+
+Para deploy em produção, ver [`docs/01-deploy.md`](docs/01-deploy.md).
 
 ### Migrations
 
@@ -74,43 +75,58 @@ php bin/migrate.php          # aplica pendentes
 php bin/migrate.php status   # mostra aplicadas/pendentes
 ```
 
-Migrations vivem em `migrations/NNNN_descricao.sql`. Sequenciais, rodadas em transação.
+Migrations vivem em `migrations/NNNN_descricao.sql`. Sequenciais, rodadas em transação. **Sempre use `bin/migrate.php`** (jamais `sqlite3 < migrations/...`) — o script registra a versão na tabela `_migrations`, que o healthz consulta.
+
+### Scripts CLI úteis
+
+```bash
+php bin/create-user.php          # cria usuário (admin ou curator) interativamente
+php bin/disable-2fa.php <user>   # desativa 2FA de um usuário (recovery)
+php bin/seed-qrs.php             # popula QRs de exemplo (--clear remove)
+php bin/build-qr-icons.php       # gera PNGs dos ícones pra usar no centro dos QRs
+php bin/migrate.php              # aplica migrations pendentes
+```
 
 ### Estrutura
 
 ```
 .
 ├── public/         # Webroot (única coisa exposta no nginx)
+│   ├── index.php
+│   └── assets/     # CSS, fontes, ícones, qr-icons
 ├── src/            # Código PHP (PSR-4 namespace ArkhamFiles\)
 ├── migrations/     # Schema versionado
 ├── templates/      # Views PHP
 ├── bin/            # Scripts CLI
-├── data/           # SQLite DB (gitignored)
-├── uploads/        # Arquivos enviados (gitignored, fora do webroot)
+├── docs/           # Documentação
+├── data/           # SQLite DB + maintenance.flag (gitignored)
+├── uploads/        # Imagens enviadas (gitignored, fora do webroot)
 └── storage/        # Sessions, cache (gitignored)
 ```
 
 ---
 
-## Roadmap (planejado)
+## Roadmap
 
-| Versão | Conteúdo |
-|---|---|
-| v1.0.0 | **Base** · estrutura, migrations, schema, identidade visual |
-| v1.1.0 | Identidade visual completa, layout admin |
-| v1.2.0 | Auth refatorado (Argon2id, sessions, rate limit) |
-| v1.3.0 | 2FA TOTP |
-| v1.4.0 | Categorias hierárquicas |
-| v1.5.0 | Expiração de QR |
-| v1.6.0 | Tipo Nota (Markdown) |
-| v1.7.0 | Tipo Strain |
-| v1.8.0 | Tipo Imagem |
-| v1.9.0 | Páginas de erro temáticas + cleanup |
+| Versão | Tema | Status |
+|---|---|---|
+| v1.0.0 | Base · estrutura, migrations, schema, identidade visual inicial | ✅ |
+| v1.1.0 | Identidade visual completa (Cinzel, Cormorant, Tabler icons, sidebar) | ✅ |
+| v1.2.0 | Auth refatorado (Argon2id, sessions, CSRF, rate limit, audit) | ✅ |
+| v1.3.0 | 2FA TOTP obrigatório para admins + deleção de usuários | ✅ |
+| v1.4.0 | Categorias hierárquicas + ícones/cores | ✅ |
+| v1.4.1/1.4.2 | Hotfixes seletores visuais e sidebar | ✅ |
+| v1.5.0 | Expiração de QR + endpoint público + tracking de scans | ✅ |
+| v1.6.0 | Tipo Nota (Markdown) | ✅ |
+| v1.7.0 | Tipo Strain (perfil de cultivo) | ✅ |
+| v1.8.0 | Tipo Imagem (upload com thumbnail) | ✅ |
+| v1.8.5/1.8.6 | Geração própria de QR Code (SVG/PNG) + endpoints públicos | ✅ |
+| v1.9.0 | Páginas de erro temáticas + landing pública + dashboard real + modo manutenção | ✅ |
+| **v1.10.0** | **Documentação consolidada + polish final** | **🎯 atual** |
+| futuro | Outros tipos de QR (vcard, wifi, location), API pública, exportação | 📋 |
 
 ---
 
 ## Licença
 
-GNU General Public License v3.0 ou posterior. Veja [LICENSE](LICENSE).
-
-Trabalho derivado de [tuxxin/qr-track](https://github.com/tuxxin/qr-track) (GPL-3.0).
+GNU General Public License v3.0 ou posterior. Trabalho derivado de [tuxxin/qr-track](https://github.com/tuxxin/qr-track) (GPL-3.0). Ver [LICENSE](LICENSE).
